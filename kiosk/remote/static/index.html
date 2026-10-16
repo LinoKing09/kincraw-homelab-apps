@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kiosk-Fernbedienung</title>
+<meta name="theme-color" content="#14161a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+  :root {
+    --bg: #f3f1ec;
+    --surface: #ffffff;
+    --surface-2: #ebe8e1;
+    --line: #dcd8cf;
+    --text: #1d1f23;
+    --muted: #6c6a65;
+    --accent: #e8792b;
+    --accent-ink: #ffffff;
+    --accent-soft: #fbe6d6;
+    --ok: #2f9e62;
+    --bad: #d2463c;
+    --shadow: 0 1px 2px rgba(0,0,0,.05), 0 6px 20px rgba(0,0,0,.06);
+    --radius: 18px;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --surface: #1d2025;
+      --surface-2: #262a31;
+      --line: #30353d;
+      --text: #eceae6;
+      --muted: #9a9890;
+      --accent: #f08a3e;
+      --accent-ink: #1a1208;
+      --accent-soft: #3a2616;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: env(safe-area-inset-top) 16px calc(32px + env(safe-area-inset-bottom));
+    max-width: 560px; margin: 0 auto;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; border: 0; background: none; }
+  svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2;
+        stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  header { display: flex; align-items: center; gap: 12px; padding: 18px 0 14px; }
+  header h1 { font-size: 22px; letter-spacing: -.01em; margin: 0; flex: 1; }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+  .power {
+    width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--surface); box-shadow: var(--shadow); border: 1px solid var(--line);
+    transition: background .2s, color .2s;
+  }
+  .power.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+
+  .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow);
+          border: 1px solid var(--line); }
+
+  /* Vorschau */
+  .screen { position: relative; overflow: hidden; aspect-ratio: 16 / 10; background: #000;
+            border-radius: var(--radius); border: 1px solid var(--line); }
+  .screen img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .3s; }
+  .screen .off { position: absolute; inset: 0; display: none; place-items: center; color: #8a8a8a;
+                 background: #0b0b0c; font-size: 14px; }
+  .screen.dark .off { display: grid; }
+  .screen .meta { position: absolute; left: 0; right: 0; bottom: 0; padding: 28px 14px 12px;
+                  background: linear-gradient(transparent, rgba(0,0,0,.72)); color: #fff; }
+  .meta .row { display: flex; align-items: baseline; gap: 8px; }
+  .meta .name { font-weight: 650; font-size: 17px; flex: 1; white-space: nowrap; overflow: hidden;
+                text-overflow: ellipsis; }
+  .meta .time { font-variant-numeric: tabular-nums; font-size: 13px; opacity: .85; }
+  .bar { height: 3px; background: rgba(255,255,255,.25); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 1s linear; }
+
+  .banner { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 14px;
+            background: var(--accent-soft); font-size: 14px; align-items: center; gap: 10px; }
+  .banner.show { display: flex; }
+  .banner span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .banner button { font-weight: 600; color: var(--accent); white-space: nowrap; }
+
+  /* Transport */
+  .transport { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 10px; margin: 14px 0 22px; }
+  .transport button { height: 64px; border-radius: 16px; display: grid; place-items: center;
+                      background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
+                      transition: transform .08s; }
+  .transport button:active { transform: scale(.96); }
+  .transport svg { width: 26px; height: 26px; }
+  .transport .play { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .transport .play svg { width: 30px; height: 30px; }
+
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+       margin: 24px 4px 10px; font-weight: 600; display: flex; align-items: center; }
+  h2 .grow { flex: 1; }
+  h2 button { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--accent); font-weight: 600; }
+
+  /* Ansichten */
+  .views { display: grid; gap: 8px; }
+  .view { display: flex; align-items: center; gap: 12px; padding: 14px; text-align: left; width: 100%; }
+  .view .num { width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center;
+               background: var(--surface-2); font-size: 13px; font-weight: 600; color: var(--muted); }
+  .view .label { flex: 1; min-width: 0; }
+  .view .label b { display: block; font-weight: 600; }
+  .view .label small { display: block; color: var(--muted); font-size: 12px; overflow: hidden;
+                       text-overflow: ellipsis; white-space: nowrap; }
+  .view.active { border-color: var(--accent); }
+  .view.active .num { background: var(--accent); color: var(--accent-ink); }
+
+  /* Einstellungen */
+  .settings { padding: 4px 16px; }
+  .setting { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .setting:last-child { border-bottom: 0; }
+  .setting .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .setting .val { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; }
+  input[type=range] { width: 100%; margin: 12px 0 2px; accent-color: var(--accent); }
+  .switch { position: relative; width: 48px; height: 28px; border-radius: 14px; background: var(--surface-2);
+            border: 1px solid var(--line); transition: background .2s; flex: none; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px;
+                   border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25);
+                   transition: transform .2s; }
+  .switch[aria-checked=true] { background: var(--accent); border-color: transparent; }
+  .switch[aria-checked=true]::after { transform: translateX(20px); }
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn { padding: 10px 14px; border-radius: 12px; background: var(--surface-2); font-weight: 550;
+         font-size: 14px; display: inline-flex; gap: 8px; align-items: center; }
+  .btn svg { width: 18px; height: 18px; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); }
+
+  /* Formulare */
+  .field { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line);
+           background: var(--bg); outline: none; }
+  .field:focus { border-color: var(--accent); }
+  .open { padding: 14px; display: grid; gap: 10px; }
+  .open .line { display: flex; gap: 8px; }
+  .open select { flex: 1; }
+
+  /* Editor */
+  .editor { display: none; padding: 12px; gap: 10px; }
+  .editor.show { display: grid; }
+  .erow { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px; border-radius: 14px;
+          background: var(--surface-2); }
+  .erow .fields { display: grid; gap: 6px; }
+  .erow .fields .two { display: grid; grid-template-columns: 1fr 92px; gap: 6px; }
+  .erow .tools { display: flex; flex-direction: column; gap: 4px; }
+  .erow .tools button { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center;
+                        color: var(--muted); }
+  .erow .tools button:active { background: var(--line); }
+  .erow .tools svg { width: 18px; height: 18px; }
+  .erow .field { padding: 9px 11px; font-size: 14px; background: var(--surface); }
+
+  .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom));
+           transform: translate(-50%, 30px); opacity: 0; transition: .25s; pointer-events: none;
+           background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px;
+           font-size: 14px; max-width: calc(100% - 32px); z-index: 9; }
+  .toast.show { transform: translate(-50%, 0); opacity: 1; }
+  .toast.err { background: var(--bad); color: #fff; }
+  .busy { opacity: .55; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Kiosk</h1>
+  <span class="status"><span class="dot" id="dot"></span><span id="statusText">verbinde …</span></span>
+  <button class="power" id="power" aria-label="Display ein/aus">
+    <svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>
+  </button>
+</header>
+
+<div class="screen" id="screen">
+  <img id="shot" alt="Aktuelle Anzeige" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
+  <div class="off">Display ist aus</div>
+  <div class="meta">
+    <div class="row"><span class="name" id="viewName">–</span><span class="time" id="viewTime"></span></div>
+    <div class="bar"><i id="bar"></i></div>
+  </div>
+</div>
+
+<div class="banner" id="override">
+  <svg viewBox="0 0 24 24"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+  <span id="overrideText"></span>
+  <button id="backToViews">Zurück</button>
+</div>
+
+<div class="transport">
+  <button id="prev" aria-label="Vorherige Ansicht">
+    <svg viewBox="0 0 24 24"><path d="M19 20 9 12l10-8z"/><path d="M5 19V5"/></svg>
+  </button>
+  <button id="play" class="play" aria-label="Rotation starten/anhalten"></button>
+  <button id="next" aria-label="Nächste Ansicht">
+    <svg viewBox="0 0 24 24"><path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/></svg>
+  </button>
+</div>
+
+<h2><span class="grow">Ansichten</span><button id="editToggle">Bearbeiten</button></h2>
+<div class="views" id="views"></div>
+
+<div class="card editor" id="editor">
+  <div id="erows" style="display:grid;gap:8px"></div>
+  <button class="btn" id="addView" style="justify-content:center">
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Ansicht hinzufügen</button>
+  <div class="btnrow" style="justify-content:flex-end">
+    <button class="btn" id="cancelEdit">Abbrechen</button>
+    <button class="btn primary" id="saveViews">Speichern</button>
+  </div>
+</div>
+
+<h2>Kurz etwas anderes zeigen</h2>
+<div class="card open">
+  <input class="field" id="openUrl" type="url" inputmode="url" placeholder="https://…" autocomplete="off">
+  <div class="line">
+    <select class="field" id="openFor">
+      <option value="60">1 Minute</option>
+      <option value="300" selected>5 Minuten</option>
+      <option value="900">15 Minuten</option>
+      <option value="3600">1 Stunde</option>
+      <option value="0">bis ich zurückschalte</option>
+    </select>
+    <button class="btn primary" id="openGo">Anzeigen</button>
+  </div>
+</div>
+
+<h2>Einstellungen</h2>
+<div class="card settings">
+  <div class="setting">
+    <div class="top"><span>Anzeigedauer pro Ansicht</span><span class="val" id="intervalVal"></span></div>
+    <input type="range" id="interval" min="5" max="300" step="5">
+  </div>
+  <div class="setting">
+    <div class="top"><span>Zoom</span><span class="val" id="zoomVal"></span></div>
+    <input type="range" id="zoom" min="50" max="200" step="5">
+  </div>
+  <div class="setting">
+    <div class="top"><span>HA-Kopfzeile und Seitenleiste ausblenden</span>
+      <button class="switch" id="hideChrome" role="switch" aria-checked="false" aria-label="Kopfzeile ausblenden"></button></div>
+  </div>
+  <div class="setting">
+    <div class="btnrow">
+      <button class="btn" id="reload">
+        <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Seite neu laden</button>
+      <button class="btn" id="restartBrowser">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/></svg>Browser neu starten</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>';
+const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg>';
+const ICON = {
+  up: '<svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+  del: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+};
+
+let S = null;               // letzter Zustand vom Kiosk
+let stateAt = 0;            // Zeitpunkt des letzten Zustands
+let editing = false;
+let draft = [];
+let sliderBusy = false;
+
+function toast(msg, err = false) {
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.className = 'toast', 2600);
+}
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = s => s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} min` : `${s} s`;
+
+async function api(action, body) {
+  try {
+    const r = await fetch('/api/' + action, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || r.statusText);
+    return data;
+  } catch (e) {
+    if (action !== 'state') toast(e.message, true);
+    throw e;
+  }
+}
+
+async function cmd(action, body = {}, msg) {
+  try {
+    render(await api(action, body));
+    if (msg) toast(msg);
+    setTimeout(refreshShot, 900);
+    setTimeout(refreshShot, 2500);
+  } catch {}
+}
+
+/* ---------- Darstellung ---------- */
+
+function render(s) {
+  S = s; stateAt = Date.now();
+  $('#dot').className = 'dot ' + (s.browser_ok ? 'ok' : 'bad');
+  $('#statusText').textContent = s.error ? 'Fehler' : (s.browser_ok ? 'verbunden' : 'Browser startet …');
+  $('#statusText').title = s.error || '';
+
+  $('#power').classList.toggle('on', s.display_on);
+  $('#screen').classList.toggle('dark', !s.display_on);
+  $('#play').innerHTML = s.rotating && !s.override ? ICON_PAUSE : ICON_PLAY;
+
+  $('#viewName').textContent = s.override ? 'Eigene Seite' : (s.current?.name || 'Keine Ansichten');
+  $('#override').classList.toggle('show', !!s.override);
+  $('#overrideText').textContent = s.override || '';
+
+  if (!editing) {
+    $('#views').innerHTML = s.views.map((v, i) => `
+      <button class="card view ${i === s.index && !s.override ? 'active' : ''}" data-i="${i}">
+        <span class="num">${i + 1}</span>
+        <span class="label"><b>${esc(v.name)}</b><small>${esc(v.url.replace(/^https?:\/\//, ''))}</small></span>
+        ${v.seconds ? `<span class="val" style="color:var(--muted);font-size:13px">${fmt(v.seconds)}</span>` : ''}
+      </button>`).join('') || '<div class="card view">Noch keine Ansichten – oben auf „Bearbeiten“ tippen.</div>';
+  }
+  if (!sliderBusy) {
+    $('#interval').value = s.interval; $('#intervalVal').textContent = fmt(s.interval);
+    $('#zoom').value = Math.round(s.zoom * 100); $('#zoomVal').textContent = Math.round(s.zoom * 100) + ' %';
+  }
+  $('#hideChrome').setAttribute('aria-checked', s.hide_ha_chrome);
+  tick();
+}
+
+function tick() {
+  if (!S) return;
+  const passed = Math.floor((Date.now() - stateAt) / 1000);
+  const rem = S.remaining == null ? null : Math.max(0, S.remaining - passed);
+  const total = S.override ? null : S.view_seconds;
+  if (rem == null) {
+    $('#viewTime').textContent = S.override ? 'bis zum Zurückschalten' : 'angehalten';
+    $('#bar').style.width = S.rotating ? '0' : '100%';
+  } else {
+    $('#viewTime').textContent = 'noch ' + fmt(rem);
+    $('#bar').style.width = total ? `${100 - (rem / total) * 100}%` : '0';
+  }
+}
+
+/* ---------- Abfragen ---------- */
+
+async function refreshState() {
+  try { render(await api('state')); }
+  catch (e) {
+    $('#dot').className = 'dot bad';
+    $('#statusText').textContent = 'offline';
+  }
+}
+function refreshShot() {
+  if (document.hidden || (S && !S.display_on && S.browser_ok === false)) return;
+  const img = new Image();
+  img.onload = () => { $('#shot').src = img.src; };
+  img.src = '/api/screenshot?t=' + Date.now();
+}
+setInterval(refreshState, 2500);
+setInterval(refreshShot, 6000);
+setInterval(tick, 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { refreshState(); refreshShot(); } });
+
+/* ---------- Bedienung ---------- */
+
+$('#prev').onclick = () => cmd('prev');
+$('#next').onclick = () => cmd('next');
+$('#play').onclick = () => S?.override ? cmd('resume_views') : cmd('rotation', { running: !S?.rotating });
+$('#power').onclick = () => cmd('display', { on: !S?.display_on }, S?.display_on ? 'Display aus' : 'Display an');
+$('#backToViews').onclick = () => cmd('resume_views');
+$('#screen').onclick = refreshShot;
+$('#views').onclick = e => {
+  const b = e.target.closest('[data-i]');
+  if (b) cmd('goto', { index: +b.dataset.i });
+};
+
+$('#openGo').onclick = () => {
+  const url = $('#openUrl').value.trim();
+  if (!/^https?:\/\//.test(url)) return toast('Bitte eine URL mit http:// oder https:// eingeben', true);
+  cmd('open', { url, seconds: +$('#openFor').value }, 'Wird angezeigt');
+};
+
+function slider(id, label, send) {
+  const el = $('#' + id);
+  el.oninput = () => { sliderBusy = true; $('#' + id + 'Val').textContent = label(+el.value); };
+  el.onchange = async () => { await cmd(...send(+el.value)); sliderBusy = false; };
+}
+slider('interval', fmt, v => ['interval', { seconds: v }]);
+slider('zoom', v => v + ' %', v => ['zoom', { value: v / 100 }]);
+
+$('#hideChrome').onclick = () => cmd('hide_chrome', { value: !S?.hide_ha_chrome });
+$('#reload').onclick = () => cmd('reload', {}, 'Neu geladen');
+$('#restartBrowser').onclick = () => {
+  if (confirm('Chromium auf dem Pi neu starten?')) cmd('restart_browser', {}, 'Browser startet neu');
+};
+
+/* ---------- Editor ---------- */
+
+function openEditor(on) {
+  editing = on;
+  $('#editor').classList.toggle('show', on);
+  $('#views').style.display = on ? 'none' : '';
+  $('#editToggle').textContent = on ? '' : 'Bearbeiten';
+  if (on) { draft = structuredClone(S?.views || []); drawEditor(); }
+  else if (S) render(S);
+}
+function drawEditor() {
+  $('#erows').innerHTML = draft.map((v, i) => `
+    <div class="erow" data-i="${i}">
+      <div class="fields">
+        <div class="two">
+          <input class="field" data-k="name" value="${esc(v.name)}" placeholder="Name">
+          <input class="field" data-k="seconds" type="number" min="5" max="3600" inputmode="numeric"
+                 value="${v.seconds || ''}" placeholder="Sek." title="Eigene Anzeigedauer (leer = Standard)">
+        </div>
+        <input class="field" data-k="url" type="url" inputmode="url" value="${esc(v.url)}" placeholder="http://…">
+      </div>
+      <div class="tools">
+        <button data-a="up" aria-label="Nach oben">${ICON.up}</button>
+        <button data-a="down" aria-label="Nach unten">${ICON.down}</button>
+        <button data-a="del" aria-label="Löschen">${ICON.del}</button>
+      </div>
+    </div>`).join('');
+}
+$('#erows').oninput = e => {
+  const row = e.target.closest('[data-i]'); const k = e.target.dataset.k;
+  if (!row || !k) return;
+  const v = draft[+row.dataset.i];
+  if (k === 'seconds') { if (e.target.value) v.seconds = +e.target.value; else delete v.seconds; }
+  else v[k] = e.target.value;
+};
+$('#erows').onclick = e => {
+  const b = e.target.closest('[data-a]'); if (!b) return;
+  const i = +b.closest('[data-i]').dataset.i;
+  if (b.dataset.a === 'del') draft.splice(i, 1);
+  if (b.dataset.a === 'up' && i > 0) [draft[i - 1], draft[i]] = [draft[i], draft[i - 1]];
+  if (b.dataset.a === 'down' && i < draft.length - 1) [draft[i + 1], draft[i]] = [draft[i], draft[i + 1]];
+  drawEditor();
+};
+$('#addView').onclick = () => {
+  const last = draft[draft.length - 1]?.url || 'http://';
+  draft.push({ name: `Ansicht ${draft.length + 1}`, url: last.replace(/view-(\d+)$/, (_, n) => 'view-' + (+n + 1)) });
+  drawEditor();
+  $('#erows').lastElementChild?.querySelector('[data-k=name]')?.focus();
+};
+$('#editToggle').onclick = () => openEditor(true);
+$('#cancelEdit').onclick = () => openEditor(false);
+$('#saveViews').onclick = async () => {
+  const bad = draft.find(v => !/^https?:\/\//.test(v.url));
+  if (bad) return toast(`„${bad.name}“: URL muss mit http:// beginnen`, true);
+  try {
+    render(await api('views', { views: draft }));
+    toast('Ansichten gespeichert');
+    openEditor(false);
+  } catch {}
+};
+
+refreshState().then(refreshShot);
+</script>
+</body>
+</html>

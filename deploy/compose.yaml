@@ -36,6 +36,16 @@ services:
         max-size: "1m"
         max-file: "3"
 
+  kiosk-remote:
+    image: ghcr.io/linoking09/kiosk-remote:latest
+    container_name: kiosk-remote
+    restart: unless-stopped
+    env_file: ./kiosk-remote/.env      # KIOSK_URL, KIOSK_TOKEN (Token vom Pi)
+    environment:
+      - TZ=Europe/Berlin
+    ports:
+      - "8090:8000"
+
   obsidian-livesync:
     container_name: obsidian-livesync
     image: couchdb:3

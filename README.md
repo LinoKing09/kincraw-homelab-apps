@@ -7,7 +7,8 @@ Docker-Container im LXC **docker1** (CT 301) auf dem Proxmox-Host **server1**.
 |---|---|---|---|
 | BWHV FWL Sync | [`bwhv-sync/`](bwhv-sync/README.md) | 5000 | Freiwunschliste (PDF) → Google Kalender „BWHV Schiri FWL" |
 | Untis Sync | [`untis-sync/`](untis-sync/README.md) | 5001 | WebUntis-Stundenplan → Google Kalender (Label „Schule") |
-| Kiosk | *folgt* | – | Fernbedienungsseite (Container) + Kiosk-Skript auf dem Raspberry Pi |
+| Kiosk-Fernbedienung | [`kiosk/remote/`](kiosk/README.md) | 8090 | Handy-Fernbedienung für den Kiosk-Bildschirm |
+| Kiosk (Pi) | [`kiosk/pi/`](kiosk/README.md) | 8765 (Pi) | Zeigt HA-Ansichten auf dem Bildschirm; läuft **nicht** in Docker, sondern direkt auf dem Raspberry Pi und aktualisiert sich per `git pull` |
 
 ## Wie Updates auf den Server kommen
 
@@ -41,7 +42,9 @@ docker1: Timer "homelab-update" (alle 15 Min.) ◄───┘
    ersetzt sie durch die Image-Version und richtet den Update-Timer ein.
 
 Die Datenordner (`bwhv-sync/data`, `untis-sync/data`, `untis-sync/.env`,
-`untis-sync/client_secret.json`) bleiben unverändert auf dem Server liegen.
+`untis-sync/client_secret.json`, `kiosk-remote/.env`) bleiben unverändert auf dem Server liegen.
+
+Der Raspberry Pi wird separat eingerichtet, siehe [kiosk/README.md](kiosk/README.md).
 
 ## Alltag auf docker1
 

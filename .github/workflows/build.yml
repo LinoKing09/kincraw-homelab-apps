@@ -24,9 +24,10 @@ jobs:
         run: |
           pip install -r requirements.txt pytest
           pytest -q tests/
-      - name: Syntax-Check untis-sync
-        working-directory: untis-sync
-        run: python -m py_compile *.py
+      - name: Syntax-Check untis-sync und kiosk
+        run: |
+          python -m py_compile untis-sync/*.py kiosk/remote/app.py kiosk/pi/kiosk.py
+          bash -n kiosk/pi/kiosk-run.sh kiosk/pi/install.sh
 
   build:
     needs: test
@@ -34,7 +35,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [bwhv-sync, untis-sync]
+        include:
+          - app: bwhv-sync
+            context: bwhv-sync
+          - app: untis-sync
+            context: untis-sync
+          - app: kiosk-remote
+            context: kiosk/remote
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -47,7 +54,7 @@ jobs:
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.app }}" >> "$GITHUB_ENV"
       - uses: docker/build-push-action@v7
         with:
-          context: ${{ matrix.app }}
+          context: ${{ matrix.context }}
           push: true
           tags: |
             ${{ env.IMAGE }}:latest

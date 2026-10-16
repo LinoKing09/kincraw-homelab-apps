@@ -12,5 +12,9 @@
   UND im eingebetteten Block in `deploy/setup-docker1.sh` eintragen. Änderungen an
   der Server-`compose.yaml` kommen NICHT automatisch auf docker1 – dem Nutzer sagen,
   was er dort anpassen muss.
+- `kiosk/pi/` läuft NICHT in Docker, sondern direkt auf dem Pi und wird dort alle 10 Min.
+  per `git pull` übernommen (sparse checkout, nur `kiosk/pi`). `~/kiosk/config.json` auf dem Pi
+  bleibt bestehen → neue Schlüssel immer mit Standardwert in `DEFAULT_CONFIG` ergänzen.
+  `kiosk.py` muss mit Debian-Paketen auskommen (python3-websocket), kein pip.
 - Datenformate in `data/` (token.json, history.json, state.json, exclusions.json)
   rückwärtskompatibel halten, da die bestehenden Dateien auf dem Server weiterverwendet werden.

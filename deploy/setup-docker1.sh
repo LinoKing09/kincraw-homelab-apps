@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Einmalige Einrichtung auf docker1 (CT 301).
 # Als root IM STACK-ORDNER ausführen – dort, wo compose.yaml und die Ordner
-# bwhv-sync/, untis-sync/, obsidian-livesync/ liegen:
+# bwhv-sync/, untis-sync/, kiosk-remote/, obsidian-livesync/ liegen:
 #
 #   nano setup-docker1.sh      # Inhalt dieser Datei einfügen, speichern
 #   bash setup-docker1.sh
@@ -70,6 +70,16 @@ services:
       options:
         max-size: "1m"
         max-file: "3"
+
+  kiosk-remote:
+    image: ghcr.io/linoking09/kiosk-remote:latest
+    container_name: kiosk-remote
+    restart: unless-stopped
+    env_file: ./kiosk-remote/.env      # KIOSK_URL, KIOSK_TOKEN (Token vom Pi)
+    environment:
+      - TZ=Europe/Berlin
+    ports:
+      - "8090:8000"
 
   obsidian-livesync:
     container_name: obsidian-livesync
