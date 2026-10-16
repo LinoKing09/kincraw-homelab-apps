@@ -245,14 +245,20 @@ def _fmt_d(d: date) -> str:
     return d.strftime("%d.%m.%Y")
 
 
+def _local_dt(value: str) -> datetime:
+    """Zeitpunkt in config.TZ. Zeiten ohne Offset (so legt die App sie an)
+    gelten als Ortszeit – unabhängig von der Zeitzone des Rechners."""
+    dt = datetime.fromisoformat(value)
+    return dt.replace(tzinfo=config.TZ) if dt.tzinfo is None else dt.astimezone(config.TZ)
+
+
 def _event_when(ev: dict) -> str:
     s, e = ev.get("start", {}), ev.get("end", {})
     if "date" in s:
         sd = date.fromisoformat(s["date"])
         ed = date.fromisoformat(e["date"]) - timedelta(days=1)
         return _fmt_d(sd) if sd == ed else f"{_fmt_d(sd)} – {_fmt_d(ed)}"
-    sdt = datetime.fromisoformat(s["dateTime"]).astimezone(config.TZ)
-    edt = datetime.fromisoformat(e["dateTime"]).astimezone(config.TZ)
+    sdt, edt = _local_dt(s["dateTime"]), _local_dt(e["dateTime"])
     if ev.get("recurrence"):
         return f"jeden {WEEKDAY_NAMES[sdt.weekday()]}, {sdt:%H:%M}–{edt:%H:%M}"
     return f"{_fmt_d(sdt.date())}, {sdt:%H:%M}–{edt:%H:%M}"
