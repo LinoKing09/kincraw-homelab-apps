@@ -1,0 +1,54 @@
+# compose.yaml für docker1 (CT 301).
+# Liegt im Stack-Ordner auf docker1; die Datenordner bleiben wie bisher daneben.
+# Eigene Apps kommen als fertige Images aus GHCR (gebaut von GitHub Actions),
+# kein lokales "build:" mehr nötig.
+
+services:
+  bwhv-sync:
+    image: ghcr.io/linoking09/bwhv-sync:latest
+    container_name: bwhv-sync
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./bwhv-sync/data:/app/data
+    environment:
+      - TZ=Europe/Berlin
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "3"
+
+  untis-sync:
+    image: ghcr.io/linoking09/untis-sync:latest
+    container_name: untis-sync
+    restart: unless-stopped
+    ports:
+      - "5001:5000"        # 5000 ist schon von bwhv-sync belegt
+    env_file: ./untis-sync/.env
+    volumes:
+      - ./untis-sync/data:/data
+      - ./untis-sync/client_secret.json:/app/client_secret.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "3"
+
+  obsidian-livesync:
+    container_name: obsidian-livesync
+    image: couchdb:3
+    restart: unless-stopped
+    env_file:
+      - ./obsidian-livesync/.env
+    volumes:
+      - ./obsidian-livesync/data:/opt/couchdb/data
+      - ./obsidian-livesync/etc:/opt/couchdb/etc/local.d
+    ports:
+      - "5984:5984"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs -u \"$${COUCHDB_USER}:$${COUCHDB_PASSWORD}\" http://localhost:5984/_up | grep -q ok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

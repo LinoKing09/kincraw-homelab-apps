@@ -1,0 +1,22 @@
+# Laufzeitdaten & Zugangsdaten – gehören NIE ins Repo
+data/
+**/data/
+.env
+*.env
+!.env.example
+client_secret*.json
+token.json
+secret_key
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/

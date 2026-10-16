@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stundenplan Sync</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#ffffff">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23fff'/%3E%3Crect x='12' y='14' width='40' height='7' rx='2' fill='%23008F7D'/%3E%3Crect x='12' y='25' width='40' height='7' rx='2' fill='%230080C8'/%3E%3Crect x='12' y='36' width='40' height='7' rx='2' fill='%23E3000F'/%3E%3Crect x='12' y='47' width='40' height='7' rx='2' fill='%23FFB603'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --teal: #008f7d; --blue: #0080c8; --red: #e3000f; --gold: #ffb603;
+    --navy: #0c2f52; --ink: #232628; --text: #4f5052; --muted: #7b7c7e;
+    --bg: #f3f3f2; --card: #ffffff; --line: #e2e2e0; --soft: #f7f7f6;
+    --head: "Libre Franklin", Arial, Helvetica, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #f1f2f3; --text: #c9ccd0; --muted: #9196a0;
+            --bg: #121518; --card: #1b1f23; --line: #2c3238; --soft: #22272c; }
+    button:not(.primary):not(.ghost) { background: var(--blue); }
+    .hero { background: #0a2440; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 Arial, Helvetica, sans-serif; background: var(--bg); color: var(--text); }
+
+  /* ---------- Kopfzeile ---------- */
+  header { background: var(--card); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 760px; margin: 0 auto; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+  .mark { display: grid; gap: 3px; width: 34px; flex: none; }
+  .mark i { display: block; height: 5px; border-radius: 2px; }
+  .mark i:nth-child(1) { background: var(--teal); } .mark i:nth-child(2) { background: var(--blue); }
+  .mark i:nth-child(3) { background: var(--red); }  .mark i:nth-child(4) { background: var(--gold); }
+  .brand b { display: block; font: 700 18px/1.15 var(--head); color: var(--ink); letter-spacing: .2px; }
+  .brand span { font-size: 12.5px; color: var(--muted); }
+
+  /* ---------- Hero ---------- */
+  .hero { background: var(--navy); color: #fff; }
+  .hero .inner { max-width: 760px; margin: 0 auto; padding: 26px 16px 56px; }
+  .hero h1 { margin: 0; font: 600 clamp(24px, 6vw, 34px)/1.15 var(--head); }
+  .hero p { margin: 6px 0 0; opacity: .8; font-size: 14px; }
+
+  main { max-width: 760px; margin: -36px auto 48px; padding: 0 12px; display: grid; gap: 16px; }
+
+  /* ---------- Karten mit Farbstreifen ---------- */
+  .card { background: var(--card); border-top: 6px solid var(--teal); border-radius: 2px;
+          padding: 16px 18px 18px; box-shadow: 0 1px 3px rgb(0 0 0 / .08); }
+  .card.blue { border-top-color: var(--blue); } .card.red { border-top-color: var(--red); }
+  .card.gold { border-top-color: var(--gold); }
+  .card h2 { margin: 0 0 12px; font: 600 19px/1.2 var(--head); color: var(--ink); }
+
+  /* Goldener Abschnittsbalken wie auf der Schulseite */
+  .banner { background: var(--gold); color: #232628; text-align: center;
+            font: 500 clamp(19px, 4.6vw, 24px)/1.2 var(--head); padding: 10px 12px; margin-top: 8px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { padding: 4px 10px; border-radius: 2px; font-size: 13px; background: var(--soft); border: 1px solid var(--line); }
+  .chip.ok { border-left: 4px solid var(--teal); }
+  .chip.bad { border-left: 4px solid var(--red); }
+
+  button { font: 600 15px var(--head); border: 0; border-radius: 2px; padding: 12px 18px; cursor: pointer;
+           background: var(--navy); color: #fff; transition: transform .08s, opacity .15s; }
+  button:active { transform: scale(.98); }
+  button.primary { background: var(--gold); color: #232628; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+
+  .msg { margin-top: 12px; padding: 10px 12px; font-size: 14px; display: none; border-left: 4px solid; }
+  .msg.err { display: block; background: #e3000f14; border-color: var(--red); color: var(--ink); }
+  .msg.warn { display: block; background: #ffb60322; border-color: var(--gold); color: var(--ink); }
+
+  .auth { margin-top: 14px; padding: 14px; background: var(--soft); border-left: 4px solid var(--blue); }
+  .code { font: 700 30px/1 ui-monospace, Menlo, monospace; letter-spacing: 4px; color: var(--ink); margin: 8px 0; }
+  .auth a { color: var(--blue); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; text-align: center; }
+  .stats div { background: var(--soft); padding: 10px 4px; border-top: 3px solid var(--line); }
+  .stats div:nth-child(1) { border-top-color: var(--teal); } .stats div:nth-child(2) { border-top-color: var(--blue); }
+  .stats div:nth-child(3) { border-top-color: var(--line); } .stats div:nth-child(4) { border-top-color: var(--red); }
+  .stats b { display: block; font: 700 24px/1.1 var(--head); color: var(--ink); }
+  .stats span { font-size: 12px; color: var(--muted); }
+
+  /* ---------- Stundenliste ---------- */
+  .day { margin: 18px 0 6px; font: 600 15px var(--head); color: var(--ink);
+         display: flex; align-items: center; gap: 8px; }
+  .day:first-child { margin-top: 0; }
+  .day::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .lesson { display: grid; grid-template-columns: 86px 1fr; gap: 10px; padding: 9px 10px;
+            margin-top: 6px; background: var(--soft); border-left: 4px solid var(--teal); font-size: 14.5px; }
+  .lesson.irregular { border-left-color: var(--gold); }
+  .lesson.exam { border-left-color: var(--blue); }
+  .lesson.cancelled { border-left-color: var(--red); opacity: .75; }
+  .lesson .t { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13.5px; padding-top: 1px; }
+  .lesson .s { font-weight: 700; color: var(--ink); }
+  .lesson.cancelled .s { text-decoration: line-through; }
+  .lesson .sub { color: var(--muted); font-size: 13px; }
+  .tag { font: 600 11px var(--head); padding: 2px 7px; margin-left: 6px; vertical-align: 1px; color: #fff; }
+  .tag.c { background: var(--red); } .tag.i { background: var(--gold); color: #232628; } .tag.e { background: var(--blue); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 10px; }
+  td { padding: 7px 4px; border-top: 1px solid var(--line); vertical-align: top; }
+  .muted { color: var(--muted); }
+  details summary { cursor: pointer; font: 600 19px var(--head); color: var(--ink); list-style: none; }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::after { content: " ▾"; color: var(--muted); font-size: 14px; }
+  details[open] summary::after { content: " ▴"; }
+  footer { text-align: center; font-size: 12px; color: var(--muted); padding: 0 16px 28px; }
+
+  /* ---------- Wochenraster ---------- */
+  .weeknav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+  .weeknav b { font: 600 16px var(--head); color: var(--ink); text-align: center; }
+  .weeknav small { display: block; font: 400 12.5px Arial, sans-serif; color: var(--muted); }
+  .weeknav button { padding: 8px 14px; background: var(--soft); color: var(--ink); border: 1px solid var(--line); }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 0 0 10px; }
+  .grid { display: grid; grid-template-columns: 34px repeat(var(--cols), 1fr); gap: 3px; }
+  .dh { font: 600 12.5px/1.2 var(--head); text-align: center; padding: 6px 2px; cursor: pointer;
+        background: var(--soft); color: var(--ink); border-bottom: 3px solid var(--teal); user-select: none; }
+  .dh small { display: block; font: 400 11px Arial, sans-serif; color: var(--muted); }
+  .dh.today { border-bottom-color: var(--gold); }
+  .dh.off { border-bottom-color: var(--line); color: var(--muted); text-decoration: line-through; }
+  .dh.past { cursor: default; opacity: .55; border-bottom-color: var(--line); }
+  .axis { position: relative; }
+  .axis span { position: absolute; right: 3px; font-size: 10.5px; color: var(--muted); transform: translateY(-50%); }
+  .col { position: relative; background: var(--soft);
+         background-image: repeating-linear-gradient(to bottom, transparent 0 calc(var(--hour) - 1px), var(--line) calc(var(--hour) - 1px) var(--hour)); }
+  .col.off { background-color: transparent;
+             background-image: repeating-linear-gradient(135deg, var(--soft) 0 6px, transparent 6px 12px); }
+  .col.past { opacity: .5; }
+  .les { position: absolute; left: 2px; right: 2px; overflow: hidden; cursor: pointer;
+         background: var(--card); border-left: 4px solid var(--teal); padding: 2px 4px;
+         font-size: 11.5px; line-height: 1.25; box-shadow: 0 1px 2px rgb(0 0 0 / .1); }
+  .les b { display: block; font: 700 12.5px/1.2 var(--head); color: var(--ink);
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .les span { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .les.irregular { border-left-color: var(--gold); } .les.exam { border-left-color: var(--blue); }
+  .les.cancelled { border-left-color: var(--red); } .les.cancelled b { text-decoration: line-through; }
+  .les.x { border-left-color: var(--line); background: transparent; box-shadow: none;
+           outline: 1px dashed var(--line); outline-offset: -1px; }
+  .les.x b, .les.x span { color: var(--muted); opacity: .7; }
+  .les .badge { position: absolute; top: 2px; right: 3px; font: 700 10px var(--head); color: var(--muted); }
+  .les.past { cursor: default; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; }
+
+  /* ---------- Dauerhafte Regeln ---------- */
+  .rule { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+          padding: 9px 0; border-top: 1px solid var(--line); font-size: 14.5px; }
+  .rule:first-of-type { border-top: 0; }
+  .rule button { padding: 7px 12px; font-size: 13px; }
+
+  /* ---------- Bottom Sheet ---------- */
+  .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .4); display: none; z-index: 10; }
+  .scrim.open { display: block; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; background: var(--card);
+           border-top: 6px solid var(--teal); padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+           max-width: 560px; margin: 0 auto; transform: translateY(110%); transition: transform .2s ease; }
+  .sheet.open { transform: none; }
+  .sheet h3 { margin: 0; font: 600 21px/1.2 var(--head); color: var(--ink); }
+  .sheet .meta { margin: 4px 0 12px; color: var(--muted); font-size: 14px; }
+  .sheet .info { font-size: 14px; margin: 0 0 12px; padding-left: 10px; border-left: 3px solid var(--line); }
+  .sheet .acts { display: grid; gap: 8px; }
+  .sheet .acts button { width: 100%; text-align: left; }
+  .sheet .acts button small { display: block; font: 400 12.5px Arial, sans-serif; opacity: .8; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--navy);
+           color: #fff; padding: 10px 16px; font-size: 14px; z-index: 12; display: none; box-shadow: 0 2px 8px rgb(0 0 0 / .25); }
+  .toast.show { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="brand"><b>Stundenplan Sync</b><span id="sub">WebUntis → Google Kalender</span></div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="inner">
+    <h1 id="greet">Dein Stundenplan</h1>
+    <p id="heroSub">automatisch im Google Kalender</p>
+  </div>
+</section>
+
+<main>
+  <section class="card">
+    <h2>Status</h2>
+    <div class="chips" id="chips"></div>
+    <div id="auth" class="auth" style="display:none">
+      Gib diesen Code auf <a id="authurl" target="_blank" rel="noopener"></a> ein:
+      <div class="code" id="authcode"></div>
+      <span class="muted">Warte auf Bestätigung …</span>
+    </div>
+    <div class="row">
+      <button id="btnSync" class="primary">Jetzt synchronisieren</button>
+      <button id="btnConnect">Mit Google verbinden</button>
+      <button id="btnDisconnect" class="ghost" style="display:none">Google trennen</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </section>
+
+  <section class="card blue" id="lastCard" style="display:none">
+    <h2>Letzter Sync <span class="muted" id="lastWhen" style="font-weight:400;font-size:14px"></span></h2>
+    <div class="stats">
+      <div><b id="sA">0</b><span>neu</span></div>
+      <div><b id="sU">0</b><span>geändert</span></div>
+      <div><b id="sN">0</b><span>gleich</span></div>
+      <div><b id="sD">0</b><span>gelöscht</span></div>
+    </div>
+  </section>
+
+  <div class="banner">Stundenplan</div>
+  <section class="card">
+    <div class="weeknav">
+      <button id="prevW" aria-label="Vorherige Woche">◀</button>
+      <b id="weekTitle">–<small></small></b>
+      <button id="nextW" aria-label="Nächste Woche">▶</button>
+    </div>
+    <p class="hint">Tag antippen = ganzen Tag ausblenden · Stunde antippen = Optionen</p>
+    <div id="week"><p class="muted" style="margin:0">Noch keine Daten – einmal synchronisieren.</p></div>
+    <div class="legend">
+      <span><i style="background:var(--teal)"></i>Unterricht</span>
+      <span><i style="background:var(--gold)"></i>Vertretung</span>
+      <span><i style="background:var(--red)"></i>Entfall</span>
+      <span><i style="background:var(--blue)"></i>Prüfung</span>
+      <span><i style="outline:1px dashed var(--muted)"></i>nicht im Kalender</span>
+    </div>
+  </section>
+
+  <section class="card gold" id="rulesCard" style="display:none">
+    <h2>Dauerhaft ausgeblendet</h2>
+    <div id="rules"></div>
+  </section>
+
+  <section class="card red">
+    <details>
+      <summary>Verlauf</summary>
+      <table id="history"></table>
+    </details>
+  </section>
+</main>
+<footer id="foot"></footer>
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true">
+  <h3 id="shTitle"></h3>
+  <div class="meta" id="shMeta"></div>
+  <div class="info" id="shInfo"></div>
+  <div class="acts" id="shActs"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const WD = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
+const fmtDT = iso => iso ? new Date(iso).toLocaleString("de-DE", {weekday:"short", day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"}) : "–";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let pollTimer = null;
+
+function showMsg(text, kind = "err") {
+  const m = $("msg"); m.className = "msg " + (text ? kind : ""); m.textContent = text || "";
+}
+
+function greeting(upcoming) {
+  const h = new Date().getHours();
+  const hi = h < 11 ? "Guten Morgen" : h < 18 ? "Hallo" : "Guten Abend";
+  const todayIso = new Date().toLocaleDateString("sv-SE");
+  const today = upcoming.filter(l => l.day === todayIso && l.status !== "cancelled");
+  const nowHM = new Date().toTimeString().slice(0, 5);
+  const next = upcoming.find(l => l.status !== "cancelled" && (l.day > todayIso || (l.day === todayIso && l.end > nowHM)));
+  $("greet").textContent = hi + "!";
+  if (next) {
+    const when = next.day === todayIso ? `heute um ${next.start}` :
+      `${WD[new Date(next.day + "T12:00").getDay()]} um ${next.start}`;
+    $("heroSub").textContent = `Als Nächstes: ${next.title}${next.rooms.length ? " in " + next.rooms.join(", ") : ""} – ${when}`;
+  } else {
+    $("heroSub").textContent = today.length ? "Für heute bist du durch." : "Automatisch im Google Kalender";
+  }
+}
+
+// ================================================= Wochenansicht =====
+let S = null, weekOffset = null, sheetLesson = null;
+const PX = 1.05;                      // Pixel pro Minute
+const toMin = hm => +hm.slice(0, 2) * 60 + +hm.slice(3, 5);
+const addDays = (iso, n) => { const d = new Date(iso + "T12:00"); d.setDate(d.getDate() + n); return d.toLocaleDateString("sv-SE"); };
+const ddmm = iso => iso.slice(8, 10) + "." + iso.slice(5, 7) + ".";
+const WDS = ["So","Mo","Di","Mi","Do","Fr","Sa"];
+
+function mondayOf(iso) { const wd = (new Date(iso + "T12:00").getDay() + 6) % 7; return addDays(iso, -wd); }
+function kw(iso) {
+  const d = new Date(iso + "T12:00"); d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
+  const w1 = new Date(d.getFullYear(), 0, 4);
+  return 1 + Math.round(((d - w1) / 864e5 - 3 + (w1.getDay() + 6) % 7) / 7);
+}
+
+function renderWeek() {
+  const lessons = S.lessons || [];
+  const lastDay = lessons.length ? lessons[lessons.length - 1].day : S.today;
+  const maxOffset = Math.max(0, Math.round((new Date(mondayOf(lastDay)) - new Date(mondayOf(S.today))) / 6048e5));
+  weekOffset = Math.min(Math.max(weekOffset, 0), maxOffset);
+  $("prevW").disabled = weekOffset === 0; $("nextW").disabled = weekOffset >= maxOffset;
+
+  const mon = addDays(mondayOf(S.today), weekOffset * 7);
+  const days = [0, 1, 2, 3, 4].map(i => addDays(mon, i));
+  const sat = addDays(mon, 5);
+  if (lessons.some(l => l.day === sat)) days.push(sat);
+  const wl = lessons.filter(l => days.includes(l.day));
+  $("weekTitle").innerHTML = `KW ${kw(mon)}<small>${ddmm(days[0])} – ${ddmm(days[days.length - 1])}</small>`;
+
+  if (!lessons.length) return;
+  let from = Infinity, to = -Infinity;
+  wl.forEach(l => { from = Math.min(from, toMin(l.start)); to = Math.max(to, toMin(l.end)); });
+  if (!wl.length) { from = 8 * 60; to = 13 * 60; }
+  from = Math.floor(from / 60) * 60; to = Math.ceil(to / 60) * 60;
+  const H = (to - from) * PX;
+
+  const g = document.createElement("div");
+  g.className = "grid"; g.style.setProperty("--cols", days.length); g.style.setProperty("--hour", (60 * PX) + "px");
+  g.appendChild(document.createElement("div"));
+  for (const d of days) {
+    const past = d < S.today, off = S.excluded_days.includes(d);
+    const h = document.createElement("div");
+    h.className = "dh" + (d === S.today ? " today" : "") + (off ? " off" : "") + (past ? " past" : "");
+    h.innerHTML = `${WDS[new Date(d + "T12:00").getDay()]}<small>${ddmm(d)}</small>`;
+    if (!past) h.onclick = () => dayToggle(d, off);
+    g.appendChild(h);
+  }
+  const axis = document.createElement("div"); axis.className = "axis"; axis.style.height = H + "px";
+  for (let m = from; m <= to; m += 60) axis.innerHTML += `<span style="top:${(m - from) * PX}px">${m / 60}</span>`;
+  g.appendChild(axis);
+
+  for (const d of days) {
+    const col = document.createElement("div");
+    col.className = "col" + (S.excluded_days.includes(d) ? " off" : "") + (d < S.today ? " past" : "");
+    col.style.height = H + "px";
+    const dl = wl.filter(l => l.day === d);
+    // parallele Stunden nebeneinander
+    const lanes = [];
+    dl.forEach(l => { let i = lanes.findIndex(end => end <= toMin(l.start)); if (i < 0) { i = lanes.length; lanes.push(0); } lanes[i] = toMin(l.end); l._lane = i; });
+    for (const l of dl) {
+      const e = document.createElement("div");
+      const x = !!l.excluded;
+      e.className = `les ${l.status}` + (x ? " x" : "") + (l.past ? " past" : "");
+      e.style.top = (toMin(l.start) - from) * PX + "px";
+      e.style.height = Math.max(18, (toMin(l.end) - toMin(l.start)) * PX - 2) + "px";
+      if (lanes.length > 1) { e.style.left = `calc(${l._lane * 100 / lanes.length}% + 2px)`; e.style.right = "auto"; e.style.width = `calc(${100 / lanes.length}% - 4px)`; }
+      const badge = l.excluded === "rule" ? "∞" : l.excluded === "once" ? "1×" : (!x && l.rule_active) ? "+1" : "";
+      e.innerHTML = `${badge ? `<i class="badge">${badge}</i>` : ""}<b>${esc(l.subject)}</b><span>${esc(l.rooms.join(", "))}</span><span>${l.start}</span>`;
+      e.title = `${l.title} ${l.start}–${l.end}`;
+      e.onclick = ev => { ev.stopPropagation(); openSheet(l); };
+      col.appendChild(e);
+    }
+    g.appendChild(col);
+  }
+  $("week").replaceChildren(g);
+}
+
+function renderRules() {
+  const r = S.rules || [];
+  $("rulesCard").style.display = r.length ? "" : "none";
+  $("rules").innerHTML = r.map(x => `<div class="rule"><span><b>${esc(x.label)}</b><br>
+      <span class="muted">jeden ${WD[(x.weekday + 1) % 7]} · ${x.start}</span></span>
+      <button class="ghost" data-id="${esc(x.id)}">Wieder hinzufügen</button></div>`).join("");
+  $("rules").querySelectorAll("button").forEach(b => b.onclick = () => act({action: "rule_remove", id: b.dataset.id}, "Stunde ist wieder dabei"));
+}
+
+function openSheet(l) {
+  sheetLesson = l;
+  const wd = WD[new Date(l.day + "T12:00").getDay()];
+  const statusTxt = {cancelled: " · Entfall", irregular: " · Vertretung", exam: " · Prüfung"}[l.status] || "";
+  $("shTitle").textContent = l.title;
+  $("shMeta").textContent = `${wd}, ${ddmm(l.day)} · ${l.start}–${l.end}${statusTxt}`;
+  const info = [l.rooms.join(", ") + (l.room_changed ? " (Raumänderung)" : ""), l.teachers.join(", "), ...l.info].filter(Boolean);
+  $("shInfo").innerHTML = info.map(esc).join("<br>") || '<span class="muted">Keine weiteren Infos</span>';
+  $("shInfo").style.display = "";
+
+  const every = `jeden ${wd} um ${l.start}`;
+  let acts = [];
+  if (l.past) {
+    acts.push(["ghost", "Schließen", "Vergangene Stunden lassen sich nicht mehr ändern", null]);
+  } else if (l.excluded === "day") {
+    acts.push(["primary", "Ganzen Tag wieder einblenden", `Alle Stunden am ${wd} kommen zurück in den Kalender`, {action: "day_remove", day: l.day}, "Tag ist wieder dabei"]);
+  } else if (l.excluded === "once") {
+    acts.push(["primary", "Wieder hinzufügen", "Diese Stunde kommt zurück in den Kalender", {action: "once_remove", key: l.key}, "Stunde ist wieder dabei"]);
+  } else if (l.excluded === "rule") {
+    acts.push(["primary", "Nur diesmal wieder hinzufügen", "Nur diese Stunde, die Regel bleibt", {action: "include_once_add", key: l.key}, "Stunde ist diesmal dabei"]);
+    acts.push(["", "Dauerhaft wieder hinzufügen", `Gilt wieder ${every}`, {action: "rule_remove", id: l.rule_id}, "Stunde ist wieder dabei"]);
+  } else {
+    acts.push(["primary", "Nur diesmal entfernen", `Nur am ${ddmm(l.day)}`, {action: "once_add", key: l.key}, "Stunde entfernt"]);
+    if (l.rule_active) {
+      acts.push(["", "Wieder dauerhaft ausblenden", `Diese Ausnahme zurücknehmen`, {action: "include_once_remove", key: l.key}, "Stunde ausgeblendet"]);
+    } else {
+      acts.push(["", "Dauerhaft entfernen", `Ab sofort ${every} (${esc(l.subject)})`,
+        {action: "rule_add", weekday: l.weekday, start: l.start, subject: l.subject, label: l.title}, "Stunde dauerhaft ausgeblendet"]);
+    }
+  }
+  if (!l.past) acts.push(["ghost", "Abbrechen", "", null]);
+  $("shActs").replaceChildren(...acts.map(([cls, label, sub, payload, toast]) => {
+    const b = document.createElement("button");
+    b.className = cls; b.innerHTML = esc(label) + (sub ? `<small>${sub}</small>` : "");
+    b.onclick = () => { closeSheet(); if (payload) act(payload, toast); };
+    return b;
+  }));
+  $("sheet").style.borderTopColor = l.excluded ? "var(--muted)" :
+    ({cancelled: "var(--red)", irregular: "var(--gold)", exam: "var(--blue)"}[l.status] || "var(--teal)");
+  $("scrim").classList.add("open"); $("sheet").classList.add("open");
+}
+function closeSheet() { $("scrim").classList.remove("open"); $("sheet").classList.remove("open"); }
+$("scrim").onclick = closeSheet;
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
+
+function dayToggle(day, off) {
+  const wd = WD[new Date(day + "T12:00").getDay()];
+  if (off) return act({action: "day_remove", day}, `${wd} ist wieder dabei`);
+  if (confirm(`${wd}, ${ddmm(day)} komplett aus dem Kalender nehmen?`)) act({action: "day_add", day}, `${wd} ausgeblendet`);
+}
+
+let toastTimer = null, followTimer = null;
+function toast(t, ms = 2600) {
+  $("toast").textContent = t; $("toast").classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").classList.remove("show"), ms);
+}
+async function act(payload, msg) {
+  const r = await fetch("/api/exclusions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) return toast(d.error || "Fehler beim Speichern");
+  await refresh();
+  toast(msg + (d.syncing ? " · Kalender wird aktualisiert …" : ""));
+  // kurz nachverfolgen, bis der Hintergrund-Sync fertig ist
+  clearInterval(followTimer); let n = 0;
+  followTimer = setInterval(async () => { await refresh(); if (!S.running || ++n > 15) { clearInterval(followTimer); if (d.syncing && n <= 15) toast("Kalender aktualisiert ✓", 1800); } }, 2000);
+}
+$("prevW").onclick = () => { weekOffset--; renderWeek(); };
+$("nextW").onclick = () => { weekOffset++; renderWeek(); };
+
+function render(s) {
+  $("sub").textContent = `${s.untis_school || "WebUntis"} → Google Kalender`;
+  const chips = [
+    [s.untis_configured, s.untis_configured ? "WebUntis bereit" : "WebUntis-Daten fehlen (.env)"],
+    [s.google_connected, s.google_connected ? "Google verbunden" : "Google nicht verbunden"],
+  ];
+  let html = chips.map(([ok, t]) => `<span class="chip ${ok ? "ok" : "bad"}">${t}</span>`).join("");
+  html += `<span class="chip">Label „${esc(s.label)}“</span>`;
+  if (s.interval_min > 0) html += `<span class="chip">Auto alle ${s.interval_min} min</span>`;
+  if (s.next_auto) html += `<span class="chip">nächster Sync ${fmtDT(s.next_auto)}</span>`;
+  $("chips").innerHTML = html;
+  $("foot").textContent = `Kalender „${s.calendar}“ · ${s.weeks} Wochen im Voraus`;
+
+  $("btnConnect").style.display = s.google_connected ? "none" : "";
+  $("btnDisconnect").style.display = s.google_connected ? "" : "none";
+  $("btnSync").disabled = !s.google_connected || !s.untis_configured || s.running;
+  $("btnSync").textContent = s.running ? "Sync läuft …" : "Jetzt synchronisieren";
+
+  const last = s.last;
+  if (last) {
+    $("lastCard").style.display = "";
+    $("lastWhen").textContent = "· " + fmtDT(last.at) + " (" + last.trigger + ")";
+    const st = last.stats || {};
+    $("sA").textContent = st.added ?? "–"; $("sU").textContent = st.updated ?? "–";
+    $("sN").textContent = st.unchanged ?? "–"; $("sD").textContent = st.deleted ?? "–";
+    if (!last.ok) showMsg(last.error);
+    else if (st.label_missing) showMsg(`Label „${s.label}“ wurde auf dem Kalender „${s.calendar}“ nicht gefunden – die Termine haben eine Ersatzfarbe bekommen.`, "warn");
+    else showMsg("");
+  }
+
+  S = s;
+  greeting((s.lessons || []).filter(l => !l.excluded && !l.past));
+  if (weekOffset === null) weekOffset = new Date(s.today + "T12:00").getDay() % 6 === 0 ? 1 : 0;
+  renderWeek();
+  renderRules();
+
+  $("history").innerHTML = (s.history || []).map(h => `<tr>
+    <td>${fmtDT(h.at)}</td><td class="muted">${esc(h.trigger)}</td>
+    <td>${h.ok ? `+${h.stats.added} ~${h.stats.updated} −${h.stats.deleted}` : `<span style="color:var(--red)">${esc(h.error)}</span>`}</td>
+  </tr>`).join("") || '<tr><td class="muted">Noch nichts.</td></tr>';
+}
+
+async function refresh() {
+  try { render(await (await fetch("/api/status")).json()); }
+  catch { showMsg("Server nicht erreichbar."); }
+}
+
+$("btnSync").onclick = async () => {
+  $("btnSync").disabled = true; $("btnSync").textContent = "Sync läuft …";
+  try { await fetch("/api/sync", {method: "POST"}); } finally { refresh(); }
+};
+
+$("btnConnect").onclick = async () => {
+  const r = await fetch("/api/auth/start", {method: "POST"});
+  const d = await r.json();
+  if (!r.ok) return showMsg(d.error);
+  $("auth").style.display = ""; $("authcode").textContent = d.user_code;
+  $("authurl").href = d.verification_url; $("authurl").textContent = d.verification_url.replace(/^https?:\/\//, "");
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    const p = await (await fetch("/api/auth/poll")).json();
+    if (p.status === "pending") return;
+    clearInterval(pollTimer); $("auth").style.display = "none";
+    if (p.status === "ok") { showMsg(""); refresh(); }
+    else showMsg(p.status === "expired" ? "Code abgelaufen – bitte erneut verbinden." : (p.message || "Login fehlgeschlagen."));
+  }, (d.interval || 5) * 1000);
+};
+
+$("btnDisconnect").onclick = async () => {
+  if (!confirm("Google-Verbindung wirklich trennen?")) return;
+  await fetch("/api/auth/disconnect", {method: "POST"}); refresh();
+};
+
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>
