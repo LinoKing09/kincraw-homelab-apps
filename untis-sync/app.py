@@ -3,7 +3,7 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from flask import Flask, jsonify, request, send_from_directory
 from googleapiclient.errors import HttpError
@@ -11,6 +11,8 @@ from googleapiclient.errors import HttpError
 import config
 import excl
 import gcal
+import project
+import settings
 from untis import Lesson, UntisClient, UntisError, normalize, merge_double_lessons
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -20,7 +22,7 @@ app = Flask(__name__, static_folder="static")
 _sync_lock = threading.Lock()      # nur ein Sync gleichzeitig
 _state_lock = threading.Lock()
 _queue_lock = threading.Lock()
-_queued = {"v": False}             # ein nachgeholter Sync wartet bereits
+_queued = {"v": False, "fetch": False}   # ein nachgeholter Sync wartet bereits
 _next_auto = {"at": None}
 
 
@@ -48,13 +50,15 @@ def _now():
 
 # =============================================================== Sync =====
 
-def _fetch_lessons(week_start, end) -> list:
+def _fetch_lessons(week_start, end):
+    """Echte Stunden aus WebUntis + Ferienliste (None, wenn nicht abrufbar)."""
     with UntisClient() as u:
         raw = u.timetable(week_start, end)
+        holidays = u.holidays()
     lessons = normalize(raw)
     if config.MERGE_DOUBLE:
         lessons = merge_double_lessons(lessons, config.MERGE_GAP_MIN)
-    return lessons
+    return lessons, holidays
 
 
 def _do_sync(trigger: str, fetch: bool) -> dict:
@@ -64,16 +68,31 @@ def _do_sync(trigger: str, fetch: bool) -> dict:
     t0 = time.time()
     result = {"ok": False, "trigger": trigger, "at": _now().isoformat(timespec="seconds")}
     all_lessons = None
+    extra = {}                      # zusätzliche Schlüssel für state.json
     try:
+        cfg = settings.load()
         today = _now().date()
         week_start = today - timedelta(days=today.weekday())   # Montag dieser Woche
-        end = today + timedelta(weeks=config.WEEKS_AHEAD)
+        end = today + timedelta(weeks=cfg["weeks"])
 
-        cached = _load_state().get("lessons") or []
+        st0 = _load_state()
+        cached = st0.get("lessons") or []
         if fetch or not cached:
-            all_lessons = _fetch_lessons(week_start, end)
+            real, holidays = _fetch_lessons(week_start, end)
+            extra["untis_until"] = max(l.day for l in real).isoformat() if real else None
+            extra["holidays_known"] = holidays is not None
+            if cfg["fill_missing"]:
+                all_lessons, template, n = project.fill_missing(
+                    real, week_start, end, holidays, st0.get("template"))
+                if template:
+                    extra["template"] = template
+                if n:
+                    log.info("%d vorläufige Stunden aus Vorlagewoche %s ergänzt",
+                             n, template["source_week"])
+            else:
+                all_lessons = real
         else:
-            all_lessons = [Lesson.from_dict(d) for d in cached]
+            all_lessons = [Lesson.from_dict(d) for d in cached if d["day"] <= end.isoformat()]
 
         excl.prune(today.isoformat())
         ex = excl.load()
@@ -81,13 +100,18 @@ def _do_sync(trigger: str, fetch: bool) -> dict:
         for l in all_lessons:
             if l.day < today:
                 continue
-            if excl.reason(ex, l.key, l.day.isoformat(), l.rule_id):
+            if excl.reason(ex, l.key, l.day.isoformat(), l.rule_id, l.alt_key):
                 skipped += 1
             else:
                 to_sync.append(l)
 
-        stats = gcal.sync(to_sync, today, end)
+        # Wurde der Zeitraum verkürzt, die Termine dahinter wieder entfernen
+        prev_until = st0.get("synced_until")
+        stats = gcal.sync(to_sync, today, end,
+                          cleanup_end=date.fromisoformat(prev_until) if prev_until else None)
+        extra["synced_until"] = end.isoformat()
         stats["excluded"] = skipped
+        stats["projected"] = sum(1 for l in to_sync if l.projected)
         result.update(ok=True, stats=stats, lessons=len(to_sync),
                       range=f"{today:%d.%m.} – {end:%d.%m.%Y}")
         log.info("Sync (%s) ok: %s", trigger, stats)
@@ -108,6 +132,7 @@ def _do_sync(trigger: str, fetch: bool) -> dict:
             st["history"] = ([result] + st.get("history", []))[:20]
             if all_lessons is not None:
                 st["lessons"] = [l.to_dict() for l in all_lessons]
+            st.update(extra)
             st.pop("upcoming", None)
             _save_state(st)
         _sync_lock.release()
@@ -124,6 +149,7 @@ def request_sync(trigger: str, fetch: bool = False):
     """Sync im Hintergrund anstoßen; wartet ggf. auf einen laufenden Sync.
     Mehrere schnelle Klicks ergeben nur einen nachgeholten Sync."""
     with _queue_lock:
+        _queued["fetch"] = _queued["fetch"] or fetch
         if _queued["v"]:
             return
         _queued["v"] = True
@@ -131,8 +157,9 @@ def request_sync(trigger: str, fetch: bool = False):
     def bg():
         _sync_lock.acquire()
         with _queue_lock:
-            _queued["v"] = False
-        _do_sync(trigger, fetch)
+            do_fetch = _queued["fetch"]
+            _queued.update(v=False, fetch=False)
+        _do_sync(trigger, do_fetch)
 
     threading.Thread(target=bg, daemon=True).start()
 
@@ -172,6 +199,7 @@ def healthz():
 def status():
     st = _load_state()
     ex = excl.load()
+    cfg = settings.load()
     today = _now().date()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
     lessons = []
@@ -179,7 +207,8 @@ def status():
         if d["day"] < week_start:
             continue
         d = dict(d)
-        d["excluded"] = excl.reason(ex, d["key"], d["day"], d["rule_id"])
+        d["excluded"] = excl.reason(ex, d["key"], d["day"], d["rule_id"], d.get("alt_key"))
+        d.setdefault("projected", False)
         d["rule_active"] = d["rule_id"] in {r["id"] for r in ex["rules"]}
         d["past"] = d["day"] < today.isoformat()
         lessons.append(d)
@@ -190,7 +219,12 @@ def status():
         "calendar": config.CALENDAR_ID,
         "label": config.LABEL_NAME,
         "interval_min": config.SYNC_INTERVAL_MIN,
-        "weeks": config.WEEKS_AHEAD,
+        "weeks": cfg["weeks"],
+        "weeks_min": settings.WEEKS_MIN,
+        "weeks_max": settings.WEEKS_MAX,
+        "fill_missing": cfg["fill_missing"],
+        "untis_until": st.get("untis_until"),
+        "holidays_known": st.get("holidays_known"),
         "next_auto": _next_auto["at"],
         "running": _sync_lock.locked() or _queued["v"],
         "today": today.isoformat(),
@@ -219,6 +253,19 @@ def exclusions():
     if syncing:
         request_sync("Auswahl geändert", fetch=False)
     return jsonify({"ok": True, "syncing": syncing})
+
+
+@app.post("/api/settings")
+def save_settings():
+    p = request.get_json(silent=True) or {}
+    try:
+        cfg = settings.update({k: p[k] for k in ("weeks", "fill_missing") if k in p})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    syncing = gcal.is_connected() and config.untis_configured()
+    if syncing:
+        request_sync("Einstellungen geändert", fetch=True)
+    return jsonify({"ok": True, "syncing": syncing, **cfg})
 
 
 @app.post("/api/auth/start")

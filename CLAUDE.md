@@ -3,7 +3,7 @@
 - Sprache: Deutsch (Code-Kommentare, Doku, Commit-Messages).
 - Jeder Push auf `main` wird automatisch gebaut und landet innerhalb von ~15 Minuten
   auf docker1 (Produktion). Vor dem Push: `pytest -q bwhv-sync/tests/` und
-  `python -m py_compile untis-sync/*.py` lokal laufen lassen.
+  `python -m py_compile untis-sync/*.py` sowie `pytest -q untis-sync/tests/` lokal laufen lassen.
 - Niemals Zugangsdaten oder Laufzeitdaten committen (`data/`, `.env`,
   `client_secret*.json`, `token.json`, `secret_key`).
 - Image-Namen in GHCR sind kleingeschrieben: `ghcr.io/linoking09/<app>`.
@@ -16,5 +16,5 @@
   per `git pull` übernommen (sparse checkout, nur `kiosk/pi`). `~/kiosk/config.json` auf dem Pi
   bleibt bestehen → neue Schlüssel immer mit Standardwert in `DEFAULT_CONFIG` ergänzen.
   `kiosk.py` muss mit Debian-Paketen auskommen (python3-websocket), kein pip.
-- Datenformate in `data/` (token.json, history.json, state.json, exclusions.json)
+- Datenformate in `data/` (token.json, history.json, state.json, exclusions.json, settings.json)
   rückwärtskompatibel halten, da die bestehenden Dateien auf dem Server weiterverwendet werden.

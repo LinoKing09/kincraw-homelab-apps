@@ -29,7 +29,10 @@ USE_LONG_NAMES = _env("USE_LONG_SUBJECT_NAMES", "1") == "1"
 
 # ---- Sync-Verhalten ---------------------------------------------------------
 TIMEZONE = _env("TIMEZONE", "Europe/Berlin")
+# Die nächsten beiden Werte sind nur Startwerte – in der Oberfläche unter
+# "Einstellungen" änderbar (gespeichert in data/settings.json).
 WEEKS_AHEAD = int(_env("SYNC_WEEKS_AHEAD", "4"))
+FILL_MISSING = _env("FILL_MISSING_WEEKS", "1") == "1"
 SYNC_INTERVAL_MIN = int(_env("SYNC_INTERVAL_MINUTES", "120"))
 CANCELLED_MODE = _env("CANCELLED_MODE", "mark")  # mark | delete
 MERGE_DOUBLE = _env("MERGE_DOUBLE_LESSONS", "1") == "1"

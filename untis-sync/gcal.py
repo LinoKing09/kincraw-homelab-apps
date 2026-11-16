@@ -180,6 +180,9 @@ def _event_body(lesson, label_id) -> dict:
     if lesson.classes:
         desc.append("Klasse: " + ", ".join(lesson.classes))
     desc += lesson.info
+    if getattr(lesson, "projected", False):
+        desc.append("Vorläufig: aus dem letzten Stundenplan übernommen, "
+                    "diese Woche steht noch nicht in WebUntis.")
     desc.append("(automatisch erzeugt von Untis Sync)")
 
     start = datetime.combine(lesson.day, lesson.start, tzinfo=TZ)
@@ -214,14 +217,19 @@ def _safe_delete(service, event_id):
             raise
 
 
-def sync(lessons: list, range_start, range_end) -> dict:
-    """lessons: bereits gefilterte/zusammengefasste Liste für [range_start, range_end]."""
+def sync(lessons: list, range_start, range_end, cleanup_end=None) -> dict:
+    """lessons: bereits gefilterte/zusammengefasste Liste für [range_start, range_end].
+
+    cleanup_end: bis zu diesem Tag wurde früher schon synchronisiert. Liegt er
+    hinter range_end (Zeitraum wurde verkürzt), werden die eigenen Termine
+    dazwischen entfernt."""
     service = get_service()
     label_id = _get_label_id(service)
     kw = {"eventLabelVersion": 1} if label_id else {}
 
+    list_end = max(range_end, cleanup_end) if cleanup_end else range_end
     tmin = datetime.combine(range_start, dtime.min, tzinfo=TZ)
-    tmax = datetime.combine(range_end + timedelta(days=1), dtime.min, tzinfo=TZ)
+    tmax = datetime.combine(list_end + timedelta(days=1), dtime.min, tzinfo=TZ)
 
     by_key, dupes = {}, []
     for ev in _list_managed(service, tmin, tmax):

@@ -101,8 +101,32 @@ class UntisClient:
         }
         return self._call("getTimetable", {"options": opts}) or []
 
+    def holidays(self):
+        """Ferien/Feiertage als Liste von (erster Tag, letzter Tag).
+        None, wenn das Konto sie nicht abfragen darf."""
+        try:
+            raw = self._call("getHolidays") or []
+        except UntisError:
+            return None
+        out = []
+        for h in raw:
+            try:
+                out.append((datetime.strptime(str(h["startDate"]), "%Y%m%d").date(),
+                            datetime.strptime(str(h["endDate"]), "%Y%m%d").date()))
+            except (KeyError, ValueError):
+                continue
+        return out
+
 
 # ------------------------------------------------------- Aufbereitung ----
+
+def alt_key(day: date, start: time, subject: str) -> str:
+    """Schlüssel ohne Untis-ID: Datum + Beginn + Fach. Ist der Schlüssel
+    vorläufiger (kopierter) Stunden; echte Stunden kennen ihn als Zweitschlüssel,
+    damit ein "nur diesmal entfernen" bestehen bleibt, sobald WebUntis die
+    Woche veröffentlicht."""
+    return f"{day:%Y%m%d}-p{start:%H%M}-{subject}"
+
 
 @dataclass
 class Lesson:
@@ -119,6 +143,11 @@ class Lesson:
     room_changed: bool = False
     teacher_changed: bool = False
     info: list = field(default_factory=list)
+    projected: bool = False  # True = aus dem letzten Stundenplan kopiert (noch nicht in WebUntis)
+
+    @property
+    def alt_key(self) -> str:
+        return alt_key(self.day, self.start, self.subject)
 
     @property
     def title(self) -> str:
@@ -136,6 +165,7 @@ class Lesson:
         d["title"] = self.title
         d["weekday"] = self.day.weekday()
         d["rule_id"] = self.rule_id
+        d["alt_key"] = self.alt_key
         return d
 
     @classmethod

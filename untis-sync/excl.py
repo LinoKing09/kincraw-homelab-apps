@@ -42,13 +42,17 @@ def rule_id(weekday: int, start: str, subject: str) -> str:
     return f"{weekday}|{start}|{subject}"
 
 
-def reason(ex: dict, key: str, day_iso: str, rid: str):
-    """Warum eine Stunde ausgeblendet ist: 'day' | 'once' | 'rule' | None."""
+def reason(ex: dict, key: str, day_iso: str, rid: str, alt: str = None):
+    """Warum eine Stunde ausgeblendet ist: 'day' | 'once' | 'rule' | None.
+
+    alt: Zweitschlüssel (Datum + Beginn + Fach). Damit gilt eine Auswahl, die an
+    einer vorläufigen Stunde getroffen wurde, auch für die echte Stunde weiter."""
+    keys = {key, alt} if alt else {key}
     if day_iso in ex["days"]:
         return "day"
-    if key in ex["once"]:
+    if keys & set(ex["once"]):
         return "once"
-    if rid in {r["id"] for r in ex["rules"]} and key not in ex["include_once"]:
+    if rid in {r["id"] for r in ex["rules"]} and not keys & set(ex["include_once"]):
         return "rule"
     return None
 

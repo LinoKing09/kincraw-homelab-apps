@@ -151,6 +151,29 @@
   .rule:first-of-type { border-top: 0; }
   .rule button { padding: 7px 12px; font-size: 13px; }
 
+  /* ---------- Vorläufige (kopierte) Stunden ---------- */
+  .les.proj:not(.x) { border-left-style: dashed; background-image:
+      repeating-linear-gradient(135deg, transparent 0 7px, rgb(0 143 125 / .07) 7px 14px); }
+
+  /* ---------- Einstellungen ---------- */
+  .set { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; }
+  .set + .set { border-top: 1px solid var(--line); }
+  .set b { display: block; font: 600 15px var(--head); color: var(--ink); }
+  .set small { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+  .stepper { display: flex; align-items: center; gap: 6px; flex: none; }
+  .stepper button { width: 40px; height: 40px; padding: 0; font-size: 20px; line-height: 1;
+                    background: var(--soft); color: var(--ink); border: 1px solid var(--line); }
+  .stepper output { min-width: 34px; text-align: center; font: 700 20px var(--head); color: var(--ink); }
+  .switch { position: relative; width: 50px; height: 28px; flex: none; }
+  .switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
+  .switch i { position: absolute; inset: 0; background: var(--line); border-radius: 14px; transition: background .15s; }
+  .switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px;
+                     border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgb(0 0 0 / .3); }
+  .switch input:checked + i { background: var(--teal); }
+  .switch input:checked + i::after { transform: translateX(22px); }
+  .switch input:focus-visible + i { outline: 2px solid var(--blue); outline-offset: 2px; }
+  #setNote { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+
   /* ---------- Bottom Sheet ---------- */
   .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .4); display: none; z-index: 10; }
   .scrim.open { display: block; }
@@ -225,6 +248,7 @@
       <span><i style="background:var(--gold)"></i>Vertretung</span>
       <span><i style="background:var(--red)"></i>Entfall</span>
       <span><i style="background:var(--blue)"></i>Prüfung</span>
+      <span><i style="border-left:3px dashed var(--teal)"></i>vorläufig (kopiert)</span>
       <span><i style="outline:1px dashed var(--muted)"></i>nicht im Kalender</span>
     </div>
   </section>
@@ -232,6 +256,24 @@
   <section class="card gold" id="rulesCard" style="display:none">
     <h2>Dauerhaft ausgeblendet</h2>
     <div id="rules"></div>
+  </section>
+
+  <section class="card blue">
+    <h2>Einstellungen</h2>
+    <div class="set">
+      <div><b>Wochen im Voraus</b><small>So weit reicht der Stundenplan im Kalender</small></div>
+      <div class="stepper">
+        <button id="wMinus" aria-label="Eine Woche weniger">−</button>
+        <output id="wVal" aria-live="polite">–</output>
+        <button id="wPlus" aria-label="Eine Woche mehr">+</button>
+      </div>
+    </div>
+    <div class="set">
+      <label for="fillSw"><b>Fehlende Wochen auffüllen</b>
+        <small>Steht eine Woche noch nicht in WebUntis, wird der letzte Stundenplan kopiert – ohne ausgeblendete Stunden</small></label>
+      <span class="switch"><input type="checkbox" id="fillSw"><i></i></span>
+    </div>
+    <p id="setNote"></p>
   </section>
 
   <section class="card red">
@@ -341,11 +383,11 @@ function renderWeek() {
     for (const l of dl) {
       const e = document.createElement("div");
       const x = !!l.excluded;
-      e.className = `les ${l.status}` + (x ? " x" : "") + (l.past ? " past" : "");
+      e.className = `les ${l.status}` + (x ? " x" : "") + (l.past ? " past" : "") + (l.projected ? " proj" : "");
       e.style.top = (toMin(l.start) - from) * PX + "px";
       e.style.height = Math.max(18, (toMin(l.end) - toMin(l.start)) * PX - 2) + "px";
       if (lanes.length > 1) { e.style.left = `calc(${l._lane * 100 / lanes.length}% + 2px)`; e.style.right = "auto"; e.style.width = `calc(${100 / lanes.length}% - 4px)`; }
-      const badge = l.excluded === "rule" ? "∞" : l.excluded === "once" ? "1×" : (!x && l.rule_active) ? "+1" : "";
+      const badge = l.excluded === "rule" ? "∞" : l.excluded === "once" ? "1×" : (!x && l.rule_active) ? "+1" : l.projected ? "≈" : "";
       e.innerHTML = `${badge ? `<i class="badge">${badge}</i>` : ""}<b>${esc(l.subject)}</b><span>${esc(l.rooms.join(", "))}</span><span>${l.start}</span>`;
       e.title = `${l.title} ${l.start}–${l.end}`;
       e.onclick = ev => { ev.stopPropagation(); openSheet(l); };
@@ -368,7 +410,8 @@ function renderRules() {
 function openSheet(l) {
   sheetLesson = l;
   const wd = WD[new Date(l.day + "T12:00").getDay()];
-  const statusTxt = {cancelled: " · Entfall", irregular: " · Vertretung", exam: " · Prüfung"}[l.status] || "";
+  const statusTxt = ({cancelled: " · Entfall", irregular: " · Vertretung", exam: " · Prüfung"}[l.status] || "")
+    + (l.projected ? " · vorläufig, noch nicht in WebUntis" : "");
   $("shTitle").textContent = l.title;
   $("shMeta").textContent = `${wd}, ${ddmm(l.day)} · ${l.start}–${l.end}${statusTxt}`;
   const info = [l.rooms.join(", ") + (l.room_changed ? " (Raumänderung)" : ""), l.teachers.join(", "), ...l.info].filter(Boolean);
@@ -434,6 +477,42 @@ async function act(payload, msg) {
 $("prevW").onclick = () => { weekOffset--; renderWeek(); };
 $("nextW").onclick = () => { weekOffset++; renderWeek(); };
 
+// ================================================= Einstellungen =====
+let pendingWeeks = null, weeksTimer = null;
+function renderSettings(s) {
+  if (pendingWeeks === null) $("wVal").textContent = s.weeks;
+  const w = pendingWeeks ?? s.weeks;
+  $("wMinus").disabled = w <= s.weeks_min; $("wPlus").disabled = w >= s.weeks_max;
+  $("fillSw").checked = s.fill_missing;
+  const proj = (s.lessons || []).filter(l => l.projected).length;
+  let note = "";
+  if (s.untis_until) note = `WebUntis liefert den Stundenplan aktuell bis ${ddmm(s.untis_until)}`;
+  if (s.fill_missing && proj) note += `${note ? " · " : ""}${proj} Stunden danach sind kopiert (≈)`;
+  if (s.fill_missing && s.holidays_known === false) note += `${note ? " · " : ""}Ferien konnten nicht abgefragt werden – freie Tage bitte von Hand ausblenden`;
+  $("setNote").textContent = note;
+}
+async function saveSettings(payload, msg) {
+  const r = await fetch("/api/settings", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+  const d = await r.json().catch(() => ({}));
+  pendingWeeks = null;
+  if (!r.ok) { toast(d.error || "Fehler beim Speichern"); return refresh(); }
+  await refresh();
+  toast(msg + (d.syncing ? " · Kalender wird aktualisiert …" : ""));
+  clearInterval(followTimer); let n = 0;
+  followTimer = setInterval(async () => { await refresh(); if (!S.running || ++n > 30) { clearInterval(followTimer); if (d.syncing && n <= 30) toast("Kalender aktualisiert ✓", 1800); } }, 2000);
+}
+function stepWeeks(delta) {
+  if (!S) return;
+  const w = Math.min(S.weeks_max, Math.max(S.weeks_min, (pendingWeeks ?? S.weeks) + delta));
+  pendingWeeks = w; $("wVal").textContent = w;
+  $("wMinus").disabled = w <= S.weeks_min; $("wPlus").disabled = w >= S.weeks_max;
+  clearTimeout(weeksTimer);      // erst speichern, wenn nicht mehr getippt wird
+  weeksTimer = setTimeout(() => { if (w !== S.weeks) saveSettings({weeks: w}, `${w} ${w === 1 ? "Woche" : "Wochen"} im Voraus`); else pendingWeeks = null; }, 900);
+}
+$("wMinus").onclick = () => stepWeeks(-1);
+$("wPlus").onclick = () => stepWeeks(1);
+$("fillSw").onchange = e => saveSettings({fill_missing: e.target.checked}, e.target.checked ? "Fehlende Wochen werden aufgefüllt" : "Auffüllen ausgeschaltet");
+
 function render(s) {
   $("sub").textContent = `${s.untis_school || "WebUntis"} → Google Kalender`;
   const chips = [
@@ -445,7 +524,8 @@ function render(s) {
   if (s.interval_min > 0) html += `<span class="chip">Auto alle ${s.interval_min} min</span>`;
   if (s.next_auto) html += `<span class="chip">nächster Sync ${fmtDT(s.next_auto)}</span>`;
   $("chips").innerHTML = html;
-  $("foot").textContent = `Kalender „${s.calendar}“ · ${s.weeks} Wochen im Voraus`;
+  $("foot").textContent = `Kalender „${s.calendar}“ · ${s.weeks} ${s.weeks === 1 ? "Woche" : "Wochen"} im Voraus`;
+  renderSettings(s);
 
   $("btnConnect").style.display = s.google_connected ? "none" : "";
   $("btnDisconnect").style.display = s.google_connected ? "" : "none";

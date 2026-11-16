@@ -3,7 +3,7 @@
 Holt deinen Stundenplan per WebUntis und trägt die Stunden in deinen Google
 Kalender ein – mit dem Event-Label **„Schule“**. Läuft als eigener Docker-
 Container neben BWHV FWL Sync und synchronisiert automatisch (Standard: alle
-2 Stunden, 4 Wochen im Voraus). Über die Web-Oberfläche kannst du jederzeit
+2 Stunden, 4 Wochen im Voraus – in der Oberfläche einstellbar). Über die Web-Oberfläche kannst du jederzeit
 manuell syncen.
 
 ## Was die App macht
@@ -35,6 +35,28 @@ In der Wochenansicht (◀ ▶ zum Blättern):
 
 Ausgeblendetes wird sofort aus dem Kalender gelöscht und auch vom Auto-Sync
 nicht wieder eingetragen. Gespeichert in `data/exclusions.json`.
+
+## Zeitraum und fehlende Wochen
+
+Unter **Einstellungen** in der Oberfläche:
+
+- **Wochen im Voraus** (1–26): so weit reicht der Stundenplan im Kalender.
+  Wird der Zeitraum verkürzt, verschwinden die Termine dahinter wieder.
+- **Fehlende Wochen auffüllen**: Liefert WebUntis für die hinteren Wochen
+  noch keinen Stundenplan, wird die letzte bekannte Woche dorthin kopiert –
+  ohne ausgeblendete Stunden und Tage. Solche Stunden sind in der
+  Wochenansicht gestrichelt (≈) und tragen im Kalender den Hinweis
+  „Vorläufig“. Sobald WebUntis die Woche veröffentlicht, ersetzt der echte
+  Plan die Kopie; „nur diesmal entfernt“ bleibt dabei erhalten.
+  - Kopiert wird nur **hinter** der letzten Woche mit echten Stunden. Leere
+    Wochen dazwischen (Ferien) bleiben leer, Ferien- und Feiertage laut
+    WebUntis werden übersprungen.
+  - Einmaliges aus der Vorlagewoche wird nicht mitkopiert: Entfall zählt als
+    normale Stunde, Vertretungen für entfallene Stunden fallen weg.
+  - A/B-Wochen kennt die Kopie nicht – es wird immer die letzte Woche genommen.
+
+Gespeichert in `data/settings.json`; `SYNC_WEEKS_AHEAD` und
+`FILL_MISSING_WEEKS` in der `.env` sind nur die Startwerte.
 
 ## Einrichtung
 
