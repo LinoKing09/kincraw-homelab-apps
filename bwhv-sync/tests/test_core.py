@@ -9,10 +9,10 @@ from datetime import date, datetime
 
 import pytest
 
-import history
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("BWHV_DISABLE_SCHEDULER", "1")   # keine Hintergrund-Threads im Test
+
+import history  # noqa: E402  (erst nach sys.path.insert importierbar)
 
 SAMPLE = """Freitag, 14. August 2026
 Max Mustermann
