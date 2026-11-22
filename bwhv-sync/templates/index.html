@@ -109,6 +109,14 @@
   ul.list li{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(61,51,59,.6);font-size:13px;}
   ul.list li:last-child{border-bottom:none;}
   .bar{width:3px;border-radius:2px;flex:none;}
+  /* Kommende Termine: zusammengeklappt nur die ersten Termine, Rest blendet aus */
+  .ev-wrap{overflow:hidden;transition:max-height .3s ease;}
+  .ev-wrap.collapsed{cursor:pointer;
+    -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 56px),transparent);
+            mask-image:linear-gradient(to bottom,#000 calc(100% - 56px),transparent);}
+  .ev-toggle{all:unset;display:block;width:100%;text-align:center;cursor:pointer;color:var(--muted);
+    font-size:13px;font-weight:600;padding:10px 0 0;margin-top:2px;border-top:1px solid var(--line);}
+  .ev-toggle:hover,.ev-toggle:focus-visible{color:var(--text);}
   .cat-generell{background:var(--bwhv-purple);} .cat-sperrzeitraum{background:var(--bwhv-red);}
   .cat-sperrtermin{background:var(--bwhv-gold);} .cat-marker{background:var(--bwhv-orange);}
   .li-title{font-weight:600;}
@@ -439,6 +447,9 @@ function renderResult(mode, data){
   $('resultCard').scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
+const EV_VISIBLE = 3;          // so viele Termine sind zusammengeklappt voll sichtbar
+let evExpanded = false;        // Standard: zusammengeklappt
+
 async function loadEvents(){
   const box = $('events');
   try {
@@ -446,8 +457,40 @@ async function loadEvents(){
     const data = await res.json();
     if (!res.ok) { box.innerHTML = `<div class="empty">${esc(data.error || 'Fehler beim Laden')}</div>`; return; }
     if (!data.events.length) { box.innerHTML = '<div class="empty">Keine kommenden Termine.</div>'; return; }
-    box.innerHTML = `<ul class="list">${data.events.map(e => li(e)).join('')}</ul>`;
+    const n = data.events.length;
+    if (n <= EV_VISIBLE) { box.innerHTML = `<ul class="list">${data.events.map(e => li(e)).join('')}</ul>`; return; }
+    box.innerHTML = `<div class="ev-wrap" id="evWrap"><ul class="list">${data.events.map(e => li(e)).join('')}</ul></div>
+      <button class="ev-toggle" id="evToggle" aria-controls="evWrap"></button>`;
+    $('evToggle').addEventListener('click', () => setEvExpanded(!evExpanded));
+    $('evWrap').addEventListener('click', () => { if (!evExpanded) setEvExpanded(true); });
+    setEvExpanded(evExpanded, false);
   } catch (e) { box.innerHTML = '<div class="empty">Konnte nicht geladen werden.</div>'; }
+}
+
+function setEvExpanded(open, animate = true){
+  const wrap = $('evWrap'), btn = $('evToggle');
+  if (!wrap) return;
+  evExpanded = open;
+  const items = wrap.querySelectorAll('li');
+  // zugeklappt: die ersten Termine ganz + ein Stück vom nächsten, das ausgeblendet wird
+  const peek = items[EV_VISIBLE];
+  const top = peek.getBoundingClientRect().top - wrap.getBoundingClientRect().top + wrap.scrollTop;
+  const collapsedH = top + Math.min(36, peek.offsetHeight * 0.6);
+  if (!animate) wrap.style.transition = 'none';
+  if (open) {
+    wrap.style.maxHeight = wrap.scrollHeight + 'px';
+    wrap.classList.remove('collapsed');
+    // nach der Animation Begrenzung aufheben (z. B. beim Drehen des Handys)
+    wrap.addEventListener('transitionend', () => { if (evExpanded) wrap.style.maxHeight = 'none'; }, {once: true});
+    if (!animate) wrap.style.maxHeight = 'none';
+  } else {
+    if (animate) { wrap.style.maxHeight = wrap.scrollHeight + 'px'; void wrap.offsetHeight; }
+    wrap.style.maxHeight = collapsedH + 'px';
+    wrap.classList.add('collapsed');
+  }
+  if (!animate) { void wrap.offsetHeight; wrap.style.transition = ''; }
+  btn.textContent = open ? 'Weniger anzeigen ▴' : `Alle ${items.length} Termine anzeigen ▾`;
+  btn.setAttribute('aria-expanded', open);
 }
 
 function renderNotify(n){
