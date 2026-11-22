@@ -191,7 +191,8 @@ def test_ablauf_auffuellen_verkuerzen_und_echte_daten(monkeypatch):
     settings.update({"weeks": 3, "fill_missing": False})
     r = app.run_sync("test")
     assert r["ok"] and r["stats"]["projected"] == 0
-    assert dt.date.fromisoformat(days_in_cal()[-1]) <= mon + dt.timedelta(days=4)
+    # (am Wochenende ist die echte Woche schon vorbei -> Kalender darf leer sein)
+    assert all(dt.date.fromisoformat(d) <= mon + dt.timedelta(days=4) for d in days_in_cal())
     settings.update({"weeks": 4, "fill_missing": True})
 
 

@@ -24,6 +24,14 @@ nicht mehr Vorhandenes gelöscht – aber **nur Termine, die die App selbst ange
 - **Verlauf** der letzten Importe
 - Verbindung zu Google trennen / neu verbinden
 - Fehler einzelner Termine brechen den Import nicht mehr ab, sondern werden aufgelistet
+- **Schutz vor alten PDFs:** Ist die PDF älter („letzte Änderung“) als ein schon
+  importierter Stand, warnt die Vorschau; der Import fragt vorher nach
+- **Teilen statt hochladen:** Die installierte App erscheint im Teilen-Menü (Android/Chrome).
+  PDF teilen → „FWL Import“ wählen → Vorschau öffnet sich direkt.
+  Voraussetzung: als App installiert, und das geht nur über **HTTPS**
+  (bei Aufruf über `http://<IP>` bietet der Browser das Teilen-Ziel nicht an)
+- **Erinnerung per Gotify** X Tage vor dem „ausgefüllt bis“-Datum (Karte „Erinnerung“,
+  Standard 7 und 2 Tage vorher, ab 17 Uhr, jede Schwelle nur einmal)
 
 ## Projektstruktur
 
@@ -35,7 +43,8 @@ history.py    Import-Verlauf
 config.py     Pfade & Einstellungen (per Umgebungsvariable änderbar)
 templates/    Oberfläche (index.html = alles Design + Frontend-Logik)
 static/       Icons, Manifest, Service Worker
-data/         client_secret.json, token.json, history.json  (persistent, nicht ins Image)
+notify.py     Gotify-Erinnerung (Einstellungen + Hintergrund-Check)
+data/         client_secret.json, token.json, history.json, notify.json, shared/  (persistent, nicht ins Image)
 ```
 
 ## Einstellungen (Umgebungsvariablen in compose.yaml)
@@ -46,6 +55,8 @@ data/         client_secret.json, token.json, history.json  (persistent, nicht i
 | `BWHV_MARKER_LABEL` | `FWL fertig` |
 | `BWHV_PORT` | `5000` |
 | `BWHV_TIMEZONE` | `Europe/Berlin` |
+| `BWHV_APP_URL` | – (optional: Link, der beim Antippen der Gotify-Nachricht öffnet) |
+| `BWHV_GOTIFY_URL` / `BWHV_GOTIFY_TOKEN` | – (optional; sonst in der Oberfläche einstellen) |
 
 ## Design anpassen
 

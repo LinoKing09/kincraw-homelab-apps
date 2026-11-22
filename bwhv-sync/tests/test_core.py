@@ -5,11 +5,14 @@ import io
 import itertools
 import os
 import sys
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
+import history
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("BWHV_DISABLE_SCHEDULER", "1")   # keine Hintergrund-Threads im Test
 
 SAMPLE = """Freitag, 14. August 2026
 Max Mustermann
@@ -266,3 +269,133 @@ def test_api_rejects_non_pdf(client):
 def test_index_renders(client):
     r = client.get("/")
     assert r.status_code == 200 and b"Vorschau" in r.data
+
+
+# ------------------------------------------------- ältere PDF erkennen ---
+
+PDF_STUB = b"%PDF-1.4 stub"
+
+
+@pytest.fixture
+def fake_pdf(monkeypatch):
+    """PDF-Parsing durch SAMPLE-Text ersetzen; .text änderbar pro Test."""
+    import app as appmod
+    from parser import parse_text
+    state = {"text": SAMPLE}
+    monkeypatch.setattr(appmod, "parse_freiwunschliste", lambda path: parse_text(state["text"]))
+    return state
+
+
+def _post(client, url, **extra):
+    data = {"pdf": (io.BytesIO(PDF_STUB), "fwl.pdf"), "bis_date": "2026-12-31", **extra}
+    return client.post(url, data=data, content_type="multipart/form-data")
+
+
+def test_older_pdf_warns_and_needs_force(client, svc, fake_pdf):
+    assert _post(client, "/api/import").status_code == 200          # Stand 14.08.2026 00:19
+    fake_pdf["text"] = SAMPLE.replace("14.08.2026 00:19", "01.08.2026 10:00")
+
+    r = _post(client, "/api/preview")
+    assert r.status_code == 200
+    assert r.json["older_pdf"] == {"pdf": "01.08.2026 10:00", "newest": "14.08.2026 00:19"}
+
+    r = _post(client, "/api/import")
+    assert r.status_code == 409 and r.json["older_pdf"]
+    assert len(client.get("/api/history").json["history"]) == 1     # nichts importiert
+
+    assert _post(client, "/api/import", force="1").status_code == 200
+    # gleicher oder neuerer Stand ist kein Problem
+    fake_pdf["text"] = SAMPLE
+    assert _post(client, "/api/preview").json["older_pdf"] is None
+
+
+# ------------------------------------------------------------- Teilen ---
+
+def test_share_target_roundtrip(client):
+    import json as _json
+    r = client.post("/share", data={"pdf": (io.BytesIO(PDF_STUB), "tkJ79_.pdf")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 303 and "shared=" in r.headers["Location"]
+    token = r.headers["Location"].split("shared=")[1]
+    f = client.get(f"/api/shared/{token}")
+    assert f.status_code == 200 and f.data == PDF_STUB and f.headers["X-Filename"] == "tkJ79_.pdf"
+
+    r = client.post("/share", data={"pdf": (io.BytesIO(b"kein pdf"), "x.pdf")},
+                    content_type="multipart/form-data")
+    assert "shared_error=nopdf" in r.headers["Location"]
+    assert client.get("/api/shared/../../etc/passwd").status_code == 404
+    assert client.get("/api/shared/" + "0" * 32).status_code == 404
+
+    m = _json.loads(client.get("/manifest.json").data)
+    assert m["share_target"]["action"] == "/share"
+    assert m["share_target"]["params"]["files"][0]["name"] == "pdf"
+
+
+# ---------------------------------------------------------- Erinnerung ---
+
+@pytest.fixture
+def gotify(monkeypatch):
+    import notify
+    sent = []
+
+    class R:
+        status_code = 200
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        sent.append({"url": url, "json": json, "key": headers["X-Gotify-Key"]})
+        r = R(); r.status_code = gotify_status["code"]; return r
+    gotify_status = {"code": 200}
+    monkeypatch.setattr(notify.requests, "post", fake_post)
+    notify.save_settings({"url": "http://gotify.local:8080/", "token": "Aabc", "days": "7, 2"})
+    return sent, gotify_status
+
+
+def test_notify_settings_validation():
+    import notify
+    with pytest.raises(notify.NotifyError):
+        notify.save_settings({"url": "gotify.local"})
+    with pytest.raises(notify.NotifyError):
+        notify.save_settings({"url": "http://g", "token": "t", "days": "sieben"})
+    s = notify.save_settings({"url": "http://g/", "token": "t", "days": "2;7;7"})
+    assert s == {"configured": True, "url": "http://g", "token_set": True, "days": [7, 2],
+                 "from_hour": notify.SEND_FROM_HOUR}
+    # leeres Token behält das alte, leere Adresse schaltet aus
+    assert notify.save_settings({"url": "http://h", "token": ""})["token_set"] is True
+    assert notify.save_settings({"url": ""})["configured"] is False
+
+
+def test_notify_check_thresholds(gotify):
+    import config
+    import notify
+    sent, _ = gotify
+    history.add({"bis_date": "2026-12-31"})
+    at = lambda d, h=18: datetime(2026, 12, d, h, 0, tzinfo=config.TZ)  # noqa: E731
+
+    assert notify.check(at(20)) is None                     # 11 Tage vorher: noch nichts
+    assert notify.check(at(25, 9)) is None                  # vor 17 Uhr: nichts
+    assert "6 Tage" in notify.check(at(25))                 # 7-Tage-Schwelle überschritten
+    assert notify.check(at(26)) is None                     # nicht doppelt
+    assert "bis morgen" in notify.check(at(30))             # 2-Tage-Schwelle
+    assert notify.check(at(31)) is None
+    assert len(sent) == 2 and sent[0]["url"] == "http://gotify.local:8080/message"
+    assert sent[0]["key"] == "Aabc"
+
+    history.add({"bis_date": "2027-01-31"})                 # neuer Import setzt zurück
+    assert notify.check(at(31)) is None
+
+
+def test_notify_skipped_thresholds_send_once(gotify):
+    import config
+    import notify
+    sent, _ = gotify
+    history.add({"bis_date": "2026-12-31"})
+    assert "nur noch bis heute" in notify.check(datetime(2026, 12, 31, 20, tzinfo=config.TZ))
+    assert len(sent) == 1                                   # 7 und 2 zusammen -> eine Nachricht
+
+
+def test_notify_bad_token_message(gotify, client):
+    _, st = gotify
+    st["code"] = 401
+    r = client.post("/api/notify/test")
+    assert r.status_code == 422 and "App-Token" in r.json["error"]
+    assert client.get("/api/status").json["notify"]["configured"] is True

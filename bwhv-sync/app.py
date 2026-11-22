@@ -1,19 +1,27 @@
 # -*- coding: utf-8 -*-
+import logging
 import os
+import re
+import secrets
 import tempfile
 import threading
+import time
 import traceback
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from urllib.parse import quote
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, send_file, session, url_for
 from googleapiclient.errors import HttpError
 
 import config
 import gcal
 import history
+import notify
 from parser import ParseError, parse_freiwunschliste
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 config.ensure_data_dir()
+notify.start_background()
 
 app = Flask(__name__)
 app.secret_key = config.get_secret_key()
@@ -58,6 +66,67 @@ def service_worker():
     resp = app.send_static_file("service-worker.js")
     resp.headers["Content-Type"] = "application/javascript"
     resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+# ------------------------------------------------- Teilen (Share Target) ----
+# Die installierte PWA erscheint im Teilen-Menü (manifest.json -> share_target).
+# Android schickt die PDF per POST hierher; sie wird kurz zwischengespeichert
+# und die Oberfläche lädt sie über /api/shared/<token> direkt in die Vorschau.
+
+SHARE_TTL_S = 3600
+
+
+def _share_dir() -> str:
+    return os.path.join(config.DATA_DIR, "shared")
+
+
+def _cleanup_shared():
+    d = _share_dir()
+    if not os.path.isdir(d):
+        return
+    for name in os.listdir(d):
+        p = os.path.join(d, name)
+        try:
+            if time.time() - os.path.getmtime(p) > SHARE_TTL_S:
+                os.remove(p)
+        except OSError:
+            pass
+
+
+@app.route("/share", methods=["POST"])
+def share():
+    _cleanup_shared()
+    file = next((f for f in request.files.getlist("pdf") if f and f.filename), None)
+    if file is None:
+        return redirect(url_for("index", shared_error="nofile"), 303)
+    os.makedirs(_share_dir(), exist_ok=True)
+    token = secrets.token_hex(16)
+    path = os.path.join(_share_dir(), token + ".pdf")
+    file.save(path)
+    with open(path, "rb") as f:
+        if f.read(5) != b"%PDF-":
+            os.remove(path)
+            return redirect(url_for("index", shared_error="nopdf"), 303)
+    with open(os.path.join(_share_dir(), token + ".name"), "w", encoding="utf-8") as f:
+        f.write(os.path.basename(file.filename)[:200])
+    return redirect(url_for("index", shared=token), 303)
+
+
+@app.route("/api/shared/<token>")
+def shared_file(token):
+    if not re.fullmatch(r"[0-9a-f]{32}", token):
+        return _api_error("Ungültiger Link.", 404)
+    path = os.path.join(_share_dir(), token + ".pdf")
+    if not os.path.exists(path):
+        return _api_error("Die geteilte Datei ist abgelaufen – bitte noch einmal teilen.", 404)
+    try:
+        with open(os.path.join(_share_dir(), token + ".name"), encoding="utf-8") as f:
+            name = f.read().strip() or "Freiwunschliste.pdf"
+    except OSError:
+        name = "Freiwunschliste.pdf"
+    resp = send_file(path, mimetype="application/pdf", max_age=0)
+    resp.headers["X-Filename"] = quote(name)
     return resp
 
 
@@ -126,6 +195,7 @@ def api_status():
         "today": gcal.today().isoformat(),
         "suggested_bis_date": _suggested_bis_date(),
         "last_import": history.last(),
+        "notify": notify.public_settings(),
     })
 
 
@@ -173,6 +243,27 @@ def _parsed_summary(fw):
     }
 
 
+def _newest_imported_change():
+    """Jüngster PDF-Stand ("letzte Änderung") aller bisherigen Importe."""
+    newest = None
+    for h in history.load():
+        try:
+            dt = datetime.strptime(h.get("last_change") or "", "%d.%m.%Y %H:%M")
+        except ValueError:
+            continue
+        newest = dt if newest is None or dt > newest else newest
+    return newest
+
+
+def _older_pdf(fw):
+    """Info, falls die PDF älter ist als eine schon importierte, sonst None."""
+    newest = _newest_imported_change()
+    if fw.last_change and newest and fw.last_change < newest:
+        return {"pdf": fw.last_change.strftime("%d.%m.%Y %H:%M"),
+                "newest": newest.strftime("%d.%m.%Y %H:%M")}
+    return None
+
+
 def _google_error(e: HttpError) -> str:
     status = getattr(e.resp, "status", "?")
     if status in (401, 403):
@@ -187,7 +278,7 @@ def api_preview():
     try:
         fw, bis_date, _ = _read_request()
         plan = gcal.preview(fw, bis_date)
-        return jsonify({"ok": True, **_parsed_summary(fw), "plan": plan})
+        return jsonify({"ok": True, **_parsed_summary(fw), "plan": plan, "older_pdf": _older_pdf(fw)})
     except UserError as e:
         return _api_error(str(e), 422)
     except HttpError as e:
@@ -206,6 +297,13 @@ def api_import():
         return _api_error("Es läuft bereits ein Import – bitte kurz warten.", 409)
     try:
         fw, bis_date, filename = _read_request()
+        older = _older_pdf(fw)
+        if older and request.form.get("force") != "1":
+            return jsonify({
+                "error": f"Diese PDF hat den Stand {older['pdf']}, du hast aber schon einen neueren "
+                         f"Stand ({older['newest']}) importiert. Ein Import könnte neuere Sperrtermine löschen.",
+                "older_pdf": older,
+            }), 409
         stats = gcal.sync_freiwunschliste(fw, bis_date)
         summary = _parsed_summary(fw)
         history.add({
@@ -245,6 +343,25 @@ def api_events():
         return jsonify({"events": gcal.list_upcoming()})
     except HttpError as e:
         return _api_error(_google_error(e), 502)
+
+
+@app.route("/api/notify", methods=["GET", "POST"])
+def api_notify():
+    if request.method == "GET":
+        return jsonify(notify.public_settings())
+    try:
+        return jsonify({"ok": True, **notify.save_settings(request.get_json(silent=True) or {})})
+    except notify.NotifyError as e:
+        return _api_error(str(e), 422)
+
+
+@app.route("/api/notify/test", methods=["POST"])
+def api_notify_test():
+    try:
+        notify.send("BWHV FWL Sync", "Test: Erinnerungen kommen an. ✓", priority=4)
+    except notify.NotifyError as e:
+        return _api_error(str(e), 422)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/history")

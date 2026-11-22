@@ -115,6 +115,11 @@
   .li-when{color:var(--muted);margin-top:2px;}
   .li-prev{color:var(--muted);text-decoration:line-through;font-size:12px;margin-top:2px;}
   .empty{color:var(--muted);font-size:13px;padding:6px 0;}
+  input.txt{width:100%;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px;
+    color:var(--text);font-size:16px;margin-bottom:12px;box-sizing:border-box;}
+  input.txt::placeholder{color:var(--muted);}
+  .ntf-state{font-size:13px;color:var(--muted);margin:0 0 12px;}
+  .ntf-state b{color:var(--ok);}
 
   table.hist{width:100%;border-collapse:collapse;font-size:12px;}
   table.hist th{color:var(--muted);font-weight:600;text-align:left;padding:4px 4px 8px;}
@@ -211,6 +216,28 @@
   </div>
 
   <div class="card">
+    <h2>Erinnerung</h2>
+    <p class="ntf-state" id="ntfState">wird geladen …</p>
+    <details id="ntfBox" style="border:none;margin:0;padding:0;">
+      <summary>Gotify einrichten</summary>
+      <div style="margin-top:12px;">
+        <label class="field-label" for="ntfUrl">Gotify-Adresse</label>
+        <input class="txt" id="ntfUrl" type="url" inputmode="url" placeholder="http://192.168.x.x:8080" autocomplete="off">
+        <label class="field-label" for="ntfToken">App-Token</label>
+        <input class="txt" id="ntfToken" type="password" autocomplete="off" placeholder="in Gotify unter „Apps“ anlegen">
+        <label class="field-label" for="ntfDays">Erinnern … Tage vor Ablauf</label>
+        <input class="txt" id="ntfDays" inputmode="numeric" placeholder="7, 2">
+        <div class="btn-row">
+          <button class="btn btn-outline" id="ntfTest">Test senden</button>
+          <button class="btn btn-primary" id="ntfSave">Speichern</button>
+        </div>
+        <div class="msg error" id="ntfErr"></div>
+        <div class="msg info" id="ntfOk"></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
     <details style="border:none;margin:0;padding:0;">
       <summary>Zuordnung PDF → Kalender</summary>
       <div class="legend" style="margin-top:12px;">
@@ -266,7 +293,7 @@ async function init(){
 
   $('previewBtn').addEventListener('click', () => run('preview'));
   $('importBtn').addEventListener('click', () => run('import'));
-  $('confirmBtn').addEventListener('click', () => run('import'));
+  $('confirmBtn').addEventListener('click', () => run('import', previewWasOlder));
   $('reloadEvents').addEventListener('click', loadEvents);
   $('disconnectBtn').addEventListener('click', async () => {
     if (!confirm('Verbindung zu Google trennen? Danach musst du dich neu anmelden.')) return;
@@ -274,15 +301,41 @@ async function init(){
     location.reload();
   });
 
+  $('ntfSave').addEventListener('click', saveNotify);
+  $('ntfTest').addEventListener('click', testNotify);
+
   try {
     status = await (await fetch('/api/status')).json();
     if (!bis.value && status.suggested_bis_date) bis.value = status.suggested_bis_date;
     if (status.last_import) $('statusText').textContent = 'verbunden · letzter Import ' + status.last_import.timestamp;
+    renderNotify(status.notify);
   } catch (e) {}
   onChange();
   loadEvents();
   loadHistory();
+  await loadShared();
 }
+
+// Über das Teilen-Menü geschickte PDF übernehmen und gleich die Vorschau zeigen
+async function loadShared(){
+  const q = new URLSearchParams(location.search);
+  const token = q.get('shared'), err = q.get('shared_error');
+  if (!token && !err) return;
+  history.replaceState(null, '', '/');
+  if (err) { showMsg('error', err === 'nopdf' ? 'Die geteilte Datei ist kein PDF.' : 'Es wurde keine Datei mitgeschickt.'); return; }
+  try {
+    const res = await fetch('/api/shared/' + encodeURIComponent(token));
+    if (!res.ok) { const d = await res.json().catch(() => ({})); showMsg('error', d.error || 'Geteilte Datei nicht gefunden.'); return; }
+    const name = decodeURIComponent(res.headers.get('X-Filename') || 'Freiwunschliste.pdf');
+    const file = new File([await res.blob()], name, {type: 'application/pdf'});
+    const dt = new DataTransfer(); dt.items.add(file);
+    $('fileInput').files = dt.files;
+    onChange();
+    if ($('bisDate').value) run('preview');
+  } catch (e) { showMsg('error', 'Geteilte Datei konnte nicht geladen werden.'); }
+}
+
+let previewWasOlder = false;
 
 function onChange(){
   const f = $('fileInput').files[0], bis = $('bisDate').value;
@@ -302,6 +355,7 @@ function onChange(){
     }
   }
   $('confirmRow').style.display = 'none';
+  previewWasOlder = false;
 }
 
 function setBusy(text){
@@ -312,19 +366,32 @@ function setBusy(text){
 }
 function showMsg(id, text){ const el = $(id); el.textContent = text || ''; el.style.display = text ? 'block' : 'none'; }
 
-async function run(mode){
+async function run(mode, force = false){
   showMsg('error'); showMsg('warn');
   const fd = new FormData();
   fd.append('pdf', $('fileInput').files[0]);
   fd.append('bis_date', $('bisDate').value);
+  if (force) fd.append('force', '1');
   setBusy(mode === 'preview' ? 'Vorschau wird berechnet …' : 'Termine werden importiert …');
   try {
     const res = await fetch(mode === 'preview' ? '/api/preview' : '/api/import', {method: 'POST', body: fd});
     let data;
     try { data = await res.json(); } catch { throw new Error(`Server-Antwort ${res.status}`); }
     setBusy(null);
+    if (res.status === 409 && data.older_pdf) {
+      if (confirm(data.error + '\n\nTrotzdem importieren?')) return run('import', true);
+      showMsg('warn', 'Import abgebrochen – die PDF ist älter als der zuletzt importierte Stand.');
+      return;
+    }
     if (!res.ok || data.error) { showMsg('error', data.error || 'Unbekannter Fehler.'); return; }
     renderResult(mode, data);
+    if (mode === 'preview') {
+      previewWasOlder = !!data.older_pdf;
+      $('confirmBtn').textContent = previewWasOlder ? 'Trotzdem importieren' : 'So importieren';
+      if (previewWasOlder) showMsg('warn', `Achtung: Diese PDF hat den Stand ${data.older_pdf.pdf}, importiert wurde aber schon `
+        + `der neuere Stand ${data.older_pdf.newest}. Mit dieser Datei würden neuere Sperrtermine wieder gelöscht – `
+        + `lade am besten die aktuelle Liste aus dem Portal.`);
+    }
     if (mode === 'import') {
       const warns = [];
       if (data.errors && data.errors.length) warns.push(`${data.errors.length} Termin(e) konnten nicht verarbeitet werden: ` + data.errors.join(' · '));
@@ -381,6 +448,43 @@ async function loadEvents(){
     if (!data.events.length) { box.innerHTML = '<div class="empty">Keine kommenden Termine.</div>'; return; }
     box.innerHTML = `<ul class="list">${data.events.map(e => li(e)).join('')}</ul>`;
   } catch (e) { box.innerHTML = '<div class="empty">Konnte nicht geladen werden.</div>'; }
+}
+
+function renderNotify(n){
+  if (!n) return;
+  const st = $('ntfState');
+  if (n.configured) {
+    const days = n.days.map(d => d === 0 ? 'am letzten Tag' : `${d} Tag${d === 1 ? '' : 'e'} vorher`).join(' und ');
+    st.innerHTML = `<b>aktiv</b> · Nachricht über Gotify ${esc(days)} (ab ${n.from_hour} Uhr)`;
+  } else {
+    st.textContent = 'Aus. Mit Gotify bekommst du eine Nachricht, bevor die Freiwunschliste ausläuft.';
+  }
+  $('ntfUrl').value = n.url || '';
+  $('ntfToken').value = '';
+  $('ntfToken').placeholder = n.token_set ? '•••• gespeichert – leer = behalten' : 'in Gotify unter „Apps“ anlegen';
+  $('ntfDays').value = (n.days || []).join(', ');
+  $('ntfTest').disabled = !n.configured;
+}
+
+async function saveNotify(){
+  showMsg('ntfErr'); showMsg('ntfOk');
+  const res = await fetch('/api/notify', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({url: $('ntfUrl').value, token: $('ntfToken').value, days: $('ntfDays').value})});
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { showMsg('ntfErr', d.error || 'Speichern fehlgeschlagen.'); return; }
+  renderNotify(d);
+  showMsg('ntfOk', d.configured ? 'Gespeichert. Tipp: einmal „Test senden“.' : 'Gespeichert – Erinnerung ist aus.');
+}
+
+async function testNotify(){
+  showMsg('ntfErr'); showMsg('ntfOk');
+  $('ntfTest').disabled = true;
+  try {
+    const res = await fetch('/api/notify/test', {method: 'POST'});
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) showMsg('ntfErr', d.error || 'Senden fehlgeschlagen.');
+    else showMsg('ntfOk', 'Testnachricht gesendet – schau aufs Handy.');
+  } finally { $('ntfTest').disabled = false; }
 }
 
 async function loadHistory(){
