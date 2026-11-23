@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, date, time as dtime
 from zoneinfo import ZoneInfo
 
 import requests
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -48,6 +49,20 @@ class SyncError(RuntimeError):
     pass
 
 
+REAUTH_MESSAGE = ("Die Google-Anmeldung ist abgelaufen oder wurde widerrufen. "
+                  "Bitte neu mit Google verbinden.")
+
+
+class ReauthRequired(SyncError):
+    """Google akzeptiert den gespeicherten Token nicht mehr (z. B. invalid_grant)."""
+
+    def __init__(self, message: str = REAUTH_MESSAGE):
+        super().__init__(message)
+
+
+_last_auth_error = None  # Grund, warum zuletzt neu verbunden werden musste
+
+
 # ================================================================ Auth ====
 
 def _save_creds(creds: Credentials):
@@ -69,26 +84,60 @@ def has_client_secret() -> bool:
     return os.path.exists(config.CLIENT_SECRET_PATH)
 
 
+def invalidate_token(reason: str = REAUTH_MESSAGE):
+    """Ungültigen Token beiseitelegen, damit die App nicht bei jedem Aufruf erneut
+    daran scheitert. Er bleibt als token.json.invalid zur Diagnose liegen."""
+    global _last_auth_error
+    _last_auth_error = reason
+    if os.path.exists(config.TOKEN_PATH):
+        os.replace(config.TOKEN_PATH, config.TOKEN_PATH + ".invalid")
+    _calendar_id_cache.clear()
+
+
+def last_auth_error():
+    if _last_auth_error:
+        return _last_auth_error
+    # auch nach einem Neustart der App erkennen, dass zuletzt ein Token ungültig war
+    if not os.path.exists(config.TOKEN_PATH) and os.path.exists(config.TOKEN_PATH + ".invalid"):
+        return REAUTH_MESSAGE
+    return None
+
+
+def _refresh(creds: Credentials):
+    """Access-Token erneuern. Lehnt Google den Refresh-Token ab (abgelaufen,
+    widerrufen), wird er beiseitegelegt und ReauthRequired geworfen.
+    Netzwerkfehler (TransportError) gehen unverändert weiter – der Token bleibt."""
+    try:
+        creds.refresh(Request())
+    except RefreshError as e:
+        print(f"Google-Anmeldung ungültig: {e}", flush=True)
+        invalidate_token()
+        raise ReauthRequired() from e
+    _save_creds(creds)
+
+
 def is_authenticated() -> bool:
     creds = _load_creds()
     if not creds:
         return False
     if creds.valid:
         return True
-    if creds.refresh_token:
-        try:
-            creds.refresh(Request())
-            _save_creds(creds)
-            return True
-        except Exception:
-            return False
-    return False
+    if not creds.refresh_token:
+        return False
+    try:
+        _refresh(creds)
+    except ReauthRequired:
+        return False
+    except Exception:
+        # z. B. kein Netz: Token ist vorhanden, nur gerade nicht prüfbar
+        return True
+    return True
 
 
 def _load_client_config():
     if not has_client_secret():
         raise FileNotFoundError(
-            "client_secret.json fehlt im Datenordner. Siehe SETUP.md, Abschnitt 'Google Cloud'.")
+            "client_secret.json fehlt im Datenordner. Siehe SETUP.md, Schritt 0 'Google-Zugangsdaten'.")
     with open(config.CLIENT_SECRET_PATH) as f:
         data = json.load(f)
     cfg = data.get("installed") or data.get("web")
@@ -104,6 +153,7 @@ def start_device_flow() -> dict:
 
 
 def poll_device_flow(device_code: str) -> dict:
+    global _last_auth_error
     client_id, client_secret = _load_client_config()
     resp = requests.post(TOKEN_URL, data={
         "client_id": client_id,
@@ -116,6 +166,10 @@ def poll_device_flow(device_code: str) -> dict:
         _save_creds(Credentials(
             token=data["access_token"], refresh_token=data.get("refresh_token"),
             token_uri=TOKEN_URL, client_id=client_id, client_secret=client_secret, scopes=SCOPES))
+        _last_auth_error = None
+        invalid = config.TOKEN_PATH + ".invalid"
+        if os.path.exists(invalid):
+            os.remove(invalid)
         return {"status": "ok"}
     error = data.get("error")
     if error in ("authorization_pending", "slow_down"):
@@ -129,6 +183,8 @@ def poll_device_flow(device_code: str) -> dict:
 
 def disconnect():
     """Token bei Google widerrufen und lokal löschen."""
+    global _last_auth_error
+    _last_auth_error = None
     creds = _load_creds()
     if creds:
         token = creds.refresh_token or creds.token
@@ -146,8 +202,7 @@ def get_service():
     if not creds:
         raise SyncError("Nicht mit Google verbunden.")
     if not creds.valid and creds.refresh_token:
-        creds.refresh(Request())
-        _save_creds(creds)
+        _refresh(creds)
     # static_discovery=False: aktuelles Discovery-Dokument (nötig für eventLabelId)
     return build("calendar", "v3", credentials=creds, static_discovery=False, cache_discovery=False)
 
@@ -197,21 +252,62 @@ def _get_label_id(service, calendar_id: str):
     return None
 
 
-def list_upcoming(limit: int = 40) -> list:
-    """Kommende, von der App verwaltete Termine (Einzelvorkommen) für die Übersicht."""
+def list_upcoming(limit: int = 30) -> dict:
+    """Übersicht für die Oberfläche.
+
+    weekly: die wöchentlichen Serien (Generelle Sperrzeiten) einmal zusammengefasst
+    events: kommende Einzeltermine (Sperrzeiträume, Sperrtermine, Marker) nach Datum.
+    Die einzelnen Wochen der Serien werden bewusst ausgelassen – sonst würden sie
+    die Liste füllen und die wichtigen Einträge verdrängen."""
     service = get_service()
     cal_id = get_or_create_calendar_id(service)
     now = datetime.now(config.TZ)
-    res = service.events().list(
-        calendarId=cal_id, privateExtendedProperty="bwhv_managed=1", singleEvents=True,
-        orderBy="startTime", timeMin=now.isoformat(), maxResults=limit,
-    ).execute()
-    out = []
-    for ev in res.get("items", []):
-        cat = ev.get("extendedProperties", {}).get("private", {}).get("bwhv_category", "")
-        out.append({"title": ev.get("summary", ""), "when": _event_when(ev), "category": cat,
-                    "start": ev["start"].get("dateTime") or ev["start"].get("date")})
-    return out
+
+    weekly = []
+    for ev in _list_managed(service, cal_id):
+        p = ev.get("extendedProperties", {}).get("private", {})
+        if p.get("bwhv_category") != "generell" or not ev.get("recurrence"):
+            continue
+        until = _rrule_until_date(ev["recurrence"])
+        if until and until < now.date():
+            continue
+        sdt = _local_dt(ev["start"]["dateTime"])
+        edt = _local_dt(ev["end"]["dateTime"])
+        weekly.append({"title": ev.get("summary", ""), "category": "generell",
+                       "when": f"jeden {WEEKDAY_NAMES[sdt.weekday()]}, {sdt:%H:%M}–{edt:%H:%M}"
+                               + (f" (bis {_fmt_d(until)})" if until else ""),
+                       "sort": sdt.weekday()})
+    weekly.sort(key=lambda x: x.pop("sort"))
+
+    events, page_token = [], None
+    while len(events) < limit:
+        res = service.events().list(
+            calendarId=cal_id, privateExtendedProperty="bwhv_managed=1", singleEvents=True,
+            orderBy="startTime", timeMin=now.isoformat(), maxResults=250, pageToken=page_token,
+        ).execute()
+        for ev in res.get("items", []):
+            cat = ev.get("extendedProperties", {}).get("private", {}).get("bwhv_category", "")
+            if cat == "generell":
+                continue
+            events.append({"title": ev.get("summary", ""), "when": _event_when(ev), "category": cat,
+                           "start": ev["start"].get("dateTime") or ev["start"].get("date")})
+        page_token = res.get("nextPageToken")
+        if not page_token:
+            break
+    events.sort(key=lambda e: e["start"])  # ganztägig ("2026-10-26") vor Uhrzeit am selben Tag
+    return {"weekly": weekly, "events": events[:limit]}
+
+
+def _rrule_until_date(recurrence: list):
+    for line in recurrence or []:
+        m = re.search(r"UNTIL=(\d{8})(T(\d{6})Z?)?", line)
+        if m:
+            d = datetime.strptime(m.group(1), "%Y%m%d").date()
+            if m.group(3):  # UTC-Zeitpunkt -> lokales Datum
+                dt = datetime.strptime(m.group(1) + m.group(3), "%Y%m%d%H%M%S").replace(tzinfo=ZoneInfo("UTC"))
+                d = dt.astimezone(config.TZ).date()
+            return d
+    return None
 
 
 # ============================================================= Helpers ====
@@ -246,8 +342,8 @@ def _fmt_d(d: date) -> str:
 
 
 def _local_dt(value: str) -> datetime:
-    """Zeitpunkt in config.TZ. Zeiten ohne Offset (so legt die App sie an)
-    gelten als Ortszeit – unabhängig von der Zeitzone des Rechners."""
+    # Ohne Offset (z. B. "2026-09-26T10:00:00" + timeZone) als App-Zeitzone
+    # verstehen, nicht als Systemzeit des Hosts.
     dt = datetime.fromisoformat(value)
     return dt.replace(tzinfo=config.TZ) if dt.tzinfo is None else dt.astimezone(config.TZ)
 
@@ -258,7 +354,8 @@ def _event_when(ev: dict) -> str:
         sd = date.fromisoformat(s["date"])
         ed = date.fromisoformat(e["date"]) - timedelta(days=1)
         return _fmt_d(sd) if sd == ed else f"{_fmt_d(sd)} – {_fmt_d(ed)}"
-    sdt, edt = _local_dt(s["dateTime"]), _local_dt(e["dateTime"])
+    sdt = _local_dt(s["dateTime"])
+    edt = _local_dt(e["dateTime"])
     if ev.get("recurrence"):
         return f"jeden {WEEKDAY_NAMES[sdt.weekday()]}, {sdt:%H:%M}–{edt:%H:%M}"
     return f"{_fmt_d(sdt.date())}, {sdt:%H:%M}–{edt:%H:%M}"

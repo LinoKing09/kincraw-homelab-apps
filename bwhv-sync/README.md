@@ -20,43 +20,57 @@ nicht mehr Vorhandenes gelöscht – aber **nur Termine, die die App selbst ange
 
 - **Vorschau** vor dem Import: zeigt genau, was neu / geändert (mit altem Wert) / gelöscht / gleich bleibt
 - **Datums-Schnellwahl** („wie zuletzt“, +4 Wochen, Monatsende) und Warnung bei Datum in der Vergangenheit
-- **Kommende Termine** aus dem Kalender direkt in der App
-- **Verlauf** der letzten Importe
-- Verbindung zu Google trennen / neu verbinden
-- Fehler einzelner Termine brechen den Import nicht mehr ab, sondern werden aufgelistet
+- **Link „Phoenix2 öffnen“** im Import-Bereich (`BWHV_PORTAL_URL`)
+- **Kommende Termine** aus dem Kalender direkt in der App – Einzeltermine nach Datum,
+  die wöchentlichen Sperrzeiten einmal zusammengefasst; standardmäßig zugeklappt
+  (die ersten 3 sichtbar, der Rest blendet aus, „Alle … anzeigen“ klappt auf)
+- **Verlauf** der letzten Importe inkl. Stand der PDF
 - **Schutz vor alten PDFs:** Ist die PDF älter („letzte Änderung“) als ein schon
   importierter Stand, warnt die Vorschau; der Import fragt vorher nach
-- **Teilen statt hochladen:** Die installierte App erscheint im Teilen-Menü (Android/Chrome).
-  PDF teilen → „FWL Import“ wählen → Vorschau öffnet sich direkt.
-  Voraussetzung: als App installiert, und das geht nur über **HTTPS**
-  (bei Aufruf über `http://<IP>` bietet der Browser das Teilen-Ziel nicht an)
 - **Erinnerung per Gotify** X Tage vor dem „ausgefüllt bis“-Datum (Karte „Erinnerung“,
   Standard 7 und 2 Tage vorher, ab 17 Uhr, jede Schwelle nur einmal)
+- **Teilen vom Handy** (Android/Chrome): PDF im Portal herunterladen → Teilen → FWL Import.
+  Voraussetzung: als App installiert, und das geht nur über **HTTPS**
+  (bei Aufruf über `http://<IP>` bietet der Browser das Teilen-Ziel nicht an)
+- **Passwortschutz** über `BWHV_PASSWORD` (Anmeldung bleibt `BWHV_LOGIN_DAYS` Tage gültig,
+  nach 5 Fehlversuchen 5 Minuten Sperre)
+- **Abgelaufene Google-Anmeldung** wird erkannt: statt eines Fehlers erscheint „Neu verbinden“
+- Verbindung zu Google trennen / neu verbinden
+- Fehler einzelner Termine brechen den Import nicht ab, sondern werden aufgelistet
 
 ## Projektstruktur
 
 ```
-app.py        Flask-Routen (Seiten, API, Login)
+app.py        Flask-Routen (Seiten, API, Login, Teilen)
 gcal.py       Google-Kalender: Soll-Zustand, Abgleich (Plan), Ausführen
 parser.py     PDF -> Daten (auch mehrseitige PDFs)
 history.py    Import-Verlauf
-config.py     Pfade & Einstellungen (per Umgebungsvariable änderbar)
-templates/    Oberfläche (index.html = alles Design + Frontend-Logik)
-static/       Icons, Manifest, Service Worker
 notify.py     Gotify-Erinnerung (Einstellungen + Hintergrund-Check)
-data/         client_secret.json, token.json, history.json, notify.json, shared/  (persistent, nicht ins Image)
+config.py     Pfade & Einstellungen (per Umgebungsvariable änderbar)
+templates/    Oberfläche (index.html = alles Design + Frontend-Logik, login.html, auth.html)
+static/       Icons, Manifest, Service Worker
+data/         client_secret.json, token.json, history.json, notify.json, secret_key, shared/
+              (persistent, nicht ins Image)
 ```
 
-## Einstellungen (Umgebungsvariablen in compose.yaml)
+## Einstellungen (Datei `.env`)
+
+Auf docker1 liegt sie als **`/opt/stack/bwhv-sync/.env`** (Vorlage: `.env.example`);
+`compose.yaml` liest sie per `env_file` ein. Übernehmen: `docker compose up -d bwhv-sync`.
+Prüfen, was ankommt: `docker compose config bwhv-sync | grep BWHV`.
 
 | Variable | Standard |
 |---|---|
+| `BWHV_PASSWORD` | leer = ohne Anmeldung (nur im Heimnetz!) |
+| `BWHV_LOGIN_DAYS` | `90` |
+| `BWHV_PORTAL_URL` | `https://bwhv.it4sport.de/auth/login` (Link „Phoenix2 öffnen“, leer = ausblenden) |
 | `BWHV_CALENDAR_NAME` | `BWHV Schiri FWL` |
 | `BWHV_MARKER_LABEL` | `FWL fertig` |
-| `BWHV_PORT` | `5000` |
 | `BWHV_TIMEZONE` | `Europe/Berlin` |
-| `BWHV_APP_URL` | – (optional: Link, der beim Antippen der Gotify-Nachricht öffnet) |
-| `BWHV_GOTIFY_URL` / `BWHV_GOTIFY_TOKEN` | – (optional; sonst in der Oberfläche einstellen) |
+| `BWHV_APP_URL` | leer (optional: Adresse der App – Antippen der Gotify-Nachricht öffnet sie) |
+| `BWHV_GOTIFY_URL` / `BWHV_GOTIFY_TOKEN` | leer (optional; sonst in der Oberfläche einstellen) |
+
+Enthält das Passwort ein `$`, den Wert in einfache Anführungszeichen setzen: `BWHV_PASSWORD='ab$cd'`.
 
 ## Design anpassen
 

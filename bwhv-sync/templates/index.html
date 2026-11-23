@@ -75,6 +75,11 @@
   #dropzone.drag,#dropzone.has-file{border-color:var(--bwhv-gold);background:rgba(255,204,0,.05);}
   #dropzone strong{color:var(--text);}
   #dropzone .icon{font-size:26px;}
+  a.portal{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px;padding:12px 14px;
+    border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--text);text-decoration:none;font-size:14px;}
+  a.portal:active{border-color:var(--bwhv-gold);}
+  a.portal .p-sub{display:block;color:var(--muted);font-size:12px;margin-top:2px;}
+  a.portal .arrow{color:var(--bwhv-gold);font-weight:700;font-size:18px;}
   input[type=file]{display:none;}
 
   .btn-row{display:flex;gap:10px;margin-top:14px;}
@@ -109,7 +114,13 @@
   ul.list li{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(61,51,59,.6);font-size:13px;}
   ul.list li:last-child{border-bottom:none;}
   .bar{width:3px;border-radius:2px;flex:none;}
-  /* Kommende Termine: zusammengeklappt nur die ersten Termine, Rest blendet aus */
+  .cat-generell{background:var(--bwhv-purple);} .cat-sperrzeitraum{background:var(--bwhv-red);}
+  .cat-sperrtermin{background:var(--bwhv-gold);} .cat-marker{background:var(--bwhv-orange);}
+  .li-title{font-weight:600;}
+  .li-when{color:var(--muted);margin-top:2px;}
+  .li-prev{color:var(--muted);text-decoration:line-through;font-size:12px;margin-top:2px;}
+  .empty{color:var(--muted);font-size:13px;padding:6px 0;}
+  /* Kommende Termine: zusammengeklappt nur die ersten Einträge, Rest blendet aus */
   .ev-wrap{overflow:hidden;transition:max-height .3s ease;}
   .ev-wrap.collapsed{cursor:pointer;
     -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 56px),transparent);
@@ -117,17 +128,15 @@
   .ev-toggle{all:unset;display:block;width:100%;text-align:center;cursor:pointer;color:var(--muted);
     font-size:13px;font-weight:600;padding:10px 0 0;margin-top:2px;border-top:1px solid var(--line);}
   .ev-toggle:hover,.ev-toggle:focus-visible{color:var(--text);}
-  .cat-generell{background:var(--bwhv-purple);} .cat-sperrzeitraum{background:var(--bwhv-red);}
-  .cat-sperrtermin{background:var(--bwhv-gold);} .cat-marker{background:var(--bwhv-orange);}
-  .li-title{font-weight:600;}
-  .li-when{color:var(--muted);margin-top:2px;}
-  .li-prev{color:var(--muted);text-decoration:line-through;font-size:12px;margin-top:2px;}
-  .empty{color:var(--muted);font-size:13px;padding:6px 0;}
+  /* Erinnerung (Gotify) */
   input.txt{width:100%;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px;
     color:var(--text);font-size:16px;margin-bottom:12px;box-sizing:border-box;}
   input.txt::placeholder{color:var(--muted);}
   .ntf-state{font-size:13px;color:var(--muted);margin:0 0 12px;}
   .ntf-state b{color:var(--ok);}
+  .subhead{font-size:12px;font-weight:700;color:var(--muted);margin:14px 0 2px;}
+  .subhead:first-child{margin-top:0;}
+  .hist-sub{color:var(--muted);font-size:11px;margin-top:2px;}
 
   table.hist{width:100%;border-collapse:collapse;font-size:12px;}
   table.hist th{color:var(--muted);font-weight:600;text-align:left;padding:4px 4px 8px;}
@@ -139,6 +148,7 @@
 
   footer{text-align:center;font-size:12px;color:var(--muted);padding:8px 20px;}
   footer button{all:unset;cursor:pointer;color:var(--muted);text-decoration:underline;}
+  footer form{display:inline;}
   code{background:var(--surface-2);padding:1px 5px;border-radius:5px;font-size:12px;}
 </style>
 </head>
@@ -150,7 +160,7 @@
   {% if authenticated %}
   <span class="pill" id="statusPill"><span class="dot"></span><span id="statusText">verbunden</span></span>
   {% else %}
-  <span class="pill off"><span class="dot"></span>nicht verbunden</span>
+  <span class="pill off"><span class="dot"></span>{{ 'Google-Anmeldung abgelaufen' if auth_error else 'nicht verbunden' }}</span>
   {% endif %}
 </header>
 
@@ -163,9 +173,18 @@
   </div>
 {% elif not authenticated %}
   <div class="card">
+    {% if auth_error %}
+    <h2>Neu verbinden</h2>
+    <p class="sub">{{ auth_error }}</p>
+    <div class="btn-row"><button class="btn btn-primary" onclick="location.href='/auth'">Neu mit Google verbinden</button></div>
+    <p class="sub" style="font-size:12px;margin-top:14px;">Passiert das etwa jede Woche, steht das Google-Cloud-Projekt
+      noch auf „Testen“ – dort laufen Anmeldungen nach 7 Tagen ab. Abhilfe: in der Google Cloud Console unter
+      <em>Google Auth Platform → Zielgruppe</em> die App auf „In Produktion“ stellen (siehe <code>SETUP.md</code>, Schritt 0).</p>
+    {% else %}
     <h2>Google Kalender verbinden</h2>
     <p class="sub">Einmalig nötig, damit die App Termine im Kalender „{{ calendar_name }}“ anlegen und aktualisieren kann.</p>
     <div class="btn-row"><button class="btn btn-primary" onclick="location.href='/auth'">Mit Google Kalender verbinden</button></div>
+    {% endif %}
   </div>
 {% else %}
 
@@ -181,6 +200,13 @@
     </div>
     <p class="hint" id="dateHint"></p>
 
+    {% if portal_url %}
+    <a class="portal" href="{{ portal_url }}" target="_blank" rel="noopener">
+      <span><strong>Phoenix2 öffnen</strong>
+        <span class="p-sub">Freiwunschliste als PDF herunterladen</span></span>
+      <span class="arrow">↗</span>
+    </a>
+    {% endif %}
     <div id="dropzone" role="button" tabindex="0">
       <div class="icon">📄</div>
       <div style="margin-top:6px;"><strong id="dzTitle">PDF auswählen</strong></div>
@@ -230,7 +256,7 @@
       <summary>Gotify einrichten</summary>
       <div style="margin-top:12px;">
         <label class="field-label" for="ntfUrl">Gotify-Adresse</label>
-        <input class="txt" id="ntfUrl" type="url" inputmode="url" placeholder="http://192.168.x.x:8080" autocomplete="off">
+        <input class="txt" id="ntfUrl" type="url" inputmode="url" placeholder="http://192.168.x.x:8070" autocomplete="off">
         <label class="field-label" for="ntfToken">App-Token</label>
         <input class="txt" id="ntfToken" type="password" autocomplete="off" placeholder="in Gotify unter „Apps“ anlegen">
         <label class="field-label" for="ntfDays">Erinnern … Tage vor Ablauf</label>
@@ -261,7 +287,9 @@
 </main>
 
 {% if authenticated %}
-<footer>Kalender „{{ calendar_name }}“ · <button id="disconnectBtn">Verbindung trennen</button></footer>
+<footer>Kalender „{{ calendar_name }}“ · <button id="disconnectBtn">Verbindung trennen</button>
+  {% if password_enabled %} · <form method="post" action="/logout"><button type="submit">Abmelden</button></form>{% endif %}
+</footer>
 {% endif %}
 
 <script>
@@ -273,6 +301,10 @@ const iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}
 const fmtDE = (s) => s ? s.split('-').reverse().join('.') : '';
 
 let status = null;
+
+const EV_VISIBLE = 3;          // so viele Termine sind zusammengeklappt voll sichtbar
+let evExpanded = false;        // Standard: zusammengeklappt
+let previewWasOlder = false;   // Vorschau hat eine ältere PDF erkannt
 
 if ($('importBtn')) init();
 
@@ -302,15 +334,14 @@ async function init(){
   $('previewBtn').addEventListener('click', () => run('preview'));
   $('importBtn').addEventListener('click', () => run('import'));
   $('confirmBtn').addEventListener('click', () => run('import', previewWasOlder));
+  $('ntfSave').addEventListener('click', saveNotify);
+  $('ntfTest').addEventListener('click', testNotify);
   $('reloadEvents').addEventListener('click', loadEvents);
   $('disconnectBtn').addEventListener('click', async () => {
     if (!confirm('Verbindung zu Google trennen? Danach musst du dich neu anmelden.')) return;
     await fetch('/api/disconnect', {method: 'POST'});
     location.reload();
   });
-
-  $('ntfSave').addEventListener('click', saveNotify);
-  $('ntfTest').addEventListener('click', testNotify);
 
   try {
     status = await (await fetch('/api/status')).json();
@@ -321,29 +352,35 @@ async function init(){
   onChange();
   loadEvents();
   loadHistory();
-  await loadShared();
+  loadShared();
 }
 
-// Über das Teilen-Menü geschickte PDF übernehmen und gleich die Vorschau zeigen
+// Über "Teilen" (Android) empfangene PDF ins Formular übernehmen
 async function loadShared(){
-  const q = new URLSearchParams(location.search);
-  const token = q.get('shared'), err = q.get('shared_error');
-  if (!token && !err) return;
-  history.replaceState(null, '', '/');
-  if (err) { showMsg('error', err === 'nopdf' ? 'Die geteilte Datei ist kein PDF.' : 'Es wurde keine Datei mitgeschickt.'); return; }
+  const params = new URLSearchParams(location.search);
+  const token = params.get('shared'), err = params.get('shared_error');
+  if (token || err) history.replaceState(null, '', '/');
+  if (err) { showMsg('error', err); return; }
+  if (!token) return;
   try {
     const res = await fetch('/api/shared/' + encodeURIComponent(token));
-    if (!res.ok) { const d = await res.json().catch(() => ({})); showMsg('error', d.error || 'Geteilte Datei nicht gefunden.'); return; }
-    const name = decodeURIComponent(res.headers.get('X-Filename') || 'Freiwunschliste.pdf');
-    const file = new File([await res.blob()], name, {type: 'application/pdf'});
-    const dt = new DataTransfer(); dt.items.add(file);
+    if (!res.ok) { let d = {}; try { d = await res.json(); } catch {} showMsg('error', d.error || 'Geteilte Datei nicht gefunden.'); return; }
+    const blob = await res.blob();
+    const name = decodeURIComponent(res.headers.get('X-Filename') || 'geteilt.pdf');
+    const dt = new DataTransfer();
+    dt.items.add(new File([blob], name, {type: 'application/pdf'}));
     $('fileInput').files = dt.files;
     onChange();
-    if ($('bisDate').value) run('preview');
-  } catch (e) { showMsg('error', 'Geteilte Datei konnte nicht geladen werden.'); }
+    $('bisDate').focus();
+  } catch (e) { showMsg('error', 'Geteilte Datei konnte nicht übernommen werden.'); }
 }
 
-let previewWasOlder = false;
+// Nach erfolgreichem Import: Datei leeren, damit nicht versehentlich doppelt importiert wird.
+// Das Datum bleibt stehen (ist ohnehin der neue Vorschlag "wie zuletzt").
+function resetForm(){
+  $('fileInput').value = '';
+  onChange();
+}
 
 function onChange(){
   const f = $('fileInput').files[0], bis = $('bisDate').value;
@@ -386,6 +423,8 @@ async function run(mode, force = false){
     let data;
     try { data = await res.json(); } catch { throw new Error(`Server-Antwort ${res.status}`); }
     setBusy(null);
+    if (data.reauth) { location.href = '/'; return; }  // Startseite zeigt "Neu verbinden"
+    if (res.status === 401 && {{ 'true' if password_enabled else 'false' }}) { location.href = '/login'; return; }
     if (res.status === 409 && data.older_pdf) {
       if (confirm(data.error + '\n\nTrotzdem importieren?')) return run('import', true);
       showMsg('warn', 'Import abgebrochen – die PDF ist älter als der zuletzt importierte Stand.');
@@ -408,6 +447,7 @@ async function run(mode, force = false){
       status = await (await fetch('/api/status')).json();
       if (status.last_import) $('statusText').textContent = 'verbunden · letzter Import ' + status.last_import.timestamp;
       loadEvents(); loadHistory();
+      resetForm();
     }
   } catch (e) {
     setBusy(null);
@@ -447,19 +487,21 @@ function renderResult(mode, data){
   $('resultCard').scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 
-const EV_VISIBLE = 3;          // so viele Termine sind zusammengeklappt voll sichtbar
-let evExpanded = false;        // Standard: zusammengeklappt
-
 async function loadEvents(){
   const box = $('events');
   try {
     const res = await fetch('/api/events');
     const data = await res.json();
+    if (data.reauth) { location.href = '/'; return; }
     if (!res.ok) { box.innerHTML = `<div class="empty">${esc(data.error || 'Fehler beim Laden')}</div>`; return; }
-    if (!data.events.length) { box.innerHTML = '<div class="empty">Keine kommenden Termine.</div>'; return; }
-    const n = data.events.length;
-    if (n <= EV_VISIBLE) { box.innerHTML = `<ul class="list">${data.events.map(e => li(e)).join('')}</ul>`; return; }
-    box.innerHTML = `<div class="ev-wrap" id="evWrap"><ul class="list">${data.events.map(e => li(e)).join('')}</ul></div>
+    const weekly = data.weekly || [], events = data.events || [];
+    if (!weekly.length && !events.length) { box.innerHTML = '<div class="empty">Keine kommenden Termine.</div>'; return; }
+    let html = '';
+    if (events.length) html += `<div class="subhead">Termine</div><ul class="list">${events.map(e => li(e)).join('')}</ul>`;
+    if (weekly.length) html += `<div class="subhead">Jede Woche</div><ul class="list">${weekly.map(e => li(e)).join('')}</ul>`;
+    const n = events.length + weekly.length;
+    if (n <= EV_VISIBLE) { box.innerHTML = html; return; }
+    box.innerHTML = `<div class="ev-wrap" id="evWrap">${html}</div>
       <button class="ev-toggle" id="evToggle" aria-controls="evWrap"></button>`;
     $('evToggle').addEventListener('click', () => setEvExpanded(!evExpanded));
     $('evWrap').addEventListener('click', () => { if (!evExpanded) setEvExpanded(true); });
@@ -472,7 +514,7 @@ function setEvExpanded(open, animate = true){
   if (!wrap) return;
   evExpanded = open;
   const items = wrap.querySelectorAll('li');
-  // zugeklappt: die ersten Termine ganz + ein Stück vom nächsten, das ausgeblendet wird
+  // zugeklappt: die ersten Einträge ganz + ein Stück vom nächsten, das ausgeblendet wird
   const peek = items[EV_VISIBLE];
   const top = peek.getBoundingClientRect().top - wrap.getBoundingClientRect().top + wrap.scrollTop;
   const collapsedH = top + Math.min(36, peek.offsetHeight * 0.6);
@@ -493,6 +535,7 @@ function setEvExpanded(open, animate = true){
   btn.setAttribute('aria-expanded', open);
 }
 
+// ------------------------------------------------------ Erinnerung ----
 function renderNotify(n){
   if (!n) return;
   const st = $('ntfState');
@@ -537,7 +580,8 @@ async function loadHistory(){
     if (!data.history.length) { box.innerHTML = '<div class="empty">Noch keine Importe.</div>'; return; }
     box.innerHTML = `<table class="hist"><tr><th>Zeitpunkt</th><th>bis</th>
       <th class="c-add">+</th><th class="c-upd">~</th><th class="c-del">−</th></tr>` +
-      data.history.slice(0, 10).map(h => `<tr><td>${esc(h.timestamp)}${h.errors ? ' ⚠' : ''}</td><td>${esc(fmtDE(h.bis_date))}</td>
+      data.history.slice(0, 10).map(h => `<tr><td>${esc(h.timestamp)}${h.errors ? ' ⚠' : ''}
+        ${h.last_change ? `<div class="hist-sub">PDF-Stand ${esc(h.last_change)}</div>` : ''}</td><td>${esc(fmtDE(h.bis_date))}</td>
         <td class="num c-add">${h.added}</td><td class="num c-upd">${h.updated}</td><td class="num c-del">${h.deleted}</td></tr>`).join('') +
       '</table>';
   } catch (e) { box.innerHTML = '<div class="empty">Konnte nicht geladen werden.</div>'; }

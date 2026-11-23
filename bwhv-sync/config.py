@@ -14,6 +14,8 @@ TIMEZONE = os.environ.get("BWHV_TIMEZONE", "Europe/Berlin")
 TZ = ZoneInfo(TIMEZONE)
 CALENDAR_NAME = os.environ.get("BWHV_CALENDAR_NAME", "BWHV Schiri FWL")
 MARKER_LABEL_NAME = os.environ.get("BWHV_MARKER_LABEL", "FWL fertig")
+# Link zum Portal, aus dem die Freiwunschliste exportiert wird (Phoenix2)
+PORTAL_URL = os.environ.get("BWHV_PORTAL_URL", "https://bwhv.it4sport.de/auth/login")
 
 TOKEN_PATH = os.path.join(DATA_DIR, "token.json")
 CLIENT_SECRET_PATH = os.path.join(DATA_DIR, "client_secret.json")
@@ -21,6 +23,15 @@ HISTORY_PATH = os.path.join(DATA_DIR, "history.json")
 SECRET_KEY_PATH = os.path.join(DATA_DIR, "secret_key")
 
 HISTORY_LIMIT = 30
+
+# Zugangsschutz: ist ein Passwort gesetzt, verlangt die Oberfläche eine Anmeldung.
+# Leer = offen (nur im Heimnetz vertretbar).
+PASSWORD = os.environ.get("BWHV_PASSWORD", "")
+LOGIN_DAYS = int(os.environ.get("BWHV_LOGIN_DAYS", "90"))
+
+# Über "Teilen" empfangene PDFs werden hier kurz zwischengelagert.
+SHARED_DIR = os.path.join(DATA_DIR, "shared")
+SHARED_MAX_AGE = 60 * 60  # Sekunden
 
 
 def ensure_data_dir():

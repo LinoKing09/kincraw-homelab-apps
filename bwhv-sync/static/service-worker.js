@@ -1,5 +1,5 @@
-// v2: App-Shell cachen, API immer live. Neue Version -> alter Cache wird entfernt.
-const CACHE = "bwhv-sync-shell-v2";
+// v3: App-Shell cachen, API immer live. Neue Version -> alter Cache wird entfernt.
+const CACHE = "bwhv-sync-shell-v3";
 const SHELL_FILES = ["/manifest.json", "/static/icon-192.png", "/static/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -18,7 +18,8 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== "GET" || url.pathname.startsWith("/api/") ||
-      url.pathname.startsWith("/auth") || url.pathname === "/healthz") {
+      url.pathname.startsWith("/auth") || url.pathname === "/healthz" ||
+      url.pathname === "/login" || url.pathname === "/share") {
     return;
   }
   event.respondWith(

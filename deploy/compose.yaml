@@ -12,6 +12,11 @@ services:
       - "5000:5000"
     volumes:
       - ./bwhv-sync/data:/app/data
+    # Passwort, Kalendername usw. (Vorlage: bwhv-sync/.env.example im Repo).
+    # Fehlt die Datei, läuft die App mit Standardwerten ohne Passwort.
+    env_file:
+      - path: ./bwhv-sync/.env
+        required: false
     environment:
       - TZ=Europe/Berlin
     logging:
