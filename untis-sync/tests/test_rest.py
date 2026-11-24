@@ -136,8 +136,13 @@ def test_fachnamen_einheitlich_je_auswahl():
     assert [l.title for l in ls] == ["CHEMIE", "CHEMIE", "CHEMIE", "M1-lang"]   # M1: kein REST-Name bekannt
     names.apply(ls, "short", known)
     assert [l.title for l in ls] == ["CH", "CH", "CH", "M1"]
-    ex = names.examples(known)
-    assert ex[0] == {"short": "CH", "rpc": "Chemie", "rest": "CHEMIE"}           # Unterschiede zuerst
+    # eigene Namen gehen immer vor, auch für aufgefüllte Stunden
+    names.apply(ls, "rest", known, {"CH": "Chemie", "M1": "Mathe"})
+    assert [l.title for l in ls] == ["Chemie", "Chemie", "Chemie", "Mathe"]
+    sub = names.subjects(known, {"g2": "Geschichte"})
+    assert [s["short"] for s in sub] == ["CH", "g2", "M1"]
+    assert sub[0] == {"short": "CH", "rpc": "Chemie", "rest": "CHEMIE", "custom": ""}
+    assert sub[1]["custom"] == "Geschichte"
 
 
 def test_fachnamen_im_kalender_und_status(monkeypatch):
@@ -164,5 +169,9 @@ def test_fachnamen_im_kalender_und_status(monkeypatch):
     settings.update({"names": "short"})
     assert appmod.run_sync("test")["ok"] and sent["titles"] == ["CH"]
     st = appmod.app.test_client().get("/api/status").get_json()
-    assert st["names"] == "short" and st["name_examples"][0]["rest"] == "CHEMIE"
+    assert st["names"] == "short" and st["subjects"][0]["rest"] == "CHEMIE"
+    settings.update({"custom_names": {"CH": "Chemie"}})
+    assert appmod.run_sync("test")["ok"] and sent["titles"] == ["Chemie"]
+    s = settings.update({"custom_names": {"CH": ""}})                   # leer = entfernen
+    assert s["custom_names"] == {}
     settings.update({"names": "rpc", "fill_missing": True})

@@ -120,10 +120,10 @@ def test_einmal_entfernt_gilt_auch_fuer_echte_stunde():
 
 def test_settings_validierung():
     assert settings.update({"weeks": 8, "fill_missing": False}) == {"weeks": 8, "fill_missing": False,
-                                                                     "names": "rpc"}
+                                                                     "names": "rpc", "custom_names": {}}
     assert settings.load()["weeks"] == 8
     for bad in ({"weeks": 0}, {"weeks": 99}, {"weeks": "5"}, {"weeks": True}, {"fill_missing": "ja"},
-                {"names": "lang"}):
+                {"names": "lang"}, {"custom_names": "g2"}, {"custom_names": {"g2": "x" * 61}}):
         with pytest.raises(ValueError):
             settings.update(bad)
     settings.update({"weeks": 4, "fill_missing": True})

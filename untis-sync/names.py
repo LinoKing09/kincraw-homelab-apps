@@ -5,6 +5,9 @@ Beide Schnittstellen liefern teils unterschiedliche Langnamen (z. B. "Chemie" vs
 "CHEMIE"). Die App merkt sich je Kurzname, was jede Schnittstelle liefert
 (state.json -> subject_names), und gibt allen Stunden einheitlich die gewählte
 Schreibweise – egal, aus welcher Quelle die Stunde kommt.
+
+Eigene Namen (settings.json -> custom_names, z. B. {"g2": "Geschichte"}) gehen
+immer vor.
 """
 import config
 
@@ -23,17 +26,20 @@ def collect(lessons: list, known: dict) -> dict:
     return known
 
 
-def apply(lessons: list, mode: str, known: dict) -> None:
+def apply(lessons: list, mode: str, known: dict, custom: dict = None) -> None:
+    custom = custom or {}
     for l in lessons:
-        if mode == "short":
+        if custom.get(l.subject):
+            l.display = custom[l.subject]
+        elif mode == "short":
             l.display = l.subject
         else:
             l.display = (known.get(mode) or {}).get(l.subject) or l.subject_long
 
 
-def examples(known: dict, limit: int = 6) -> list:
-    """Beispiele für die Oberfläche – unterschiedliche Schreibweisen zuerst."""
+def subjects(known: dict, custom: dict = None) -> list:
+    """Alle bekannten Fächer für die Oberfläche (alphabetisch nach Kürzel)."""
+    custom = custom or {}
     rpc, rest = known.get("rpc") or {}, known.get("rest") or {}
-    out = [{"short": k, "rpc": rpc.get(k), "rest": rest.get(k)} for k in sorted(set(rpc) | set(rest))]
-    out.sort(key=lambda e: (not (e["rpc"] and e["rest"] and e["rpc"] != e["rest"]), e["short"].lower()))
-    return out[:limit]
+    keys = sorted(set(rpc) | set(rest) | set(custom), key=str.lower)
+    return [{"short": k, "rpc": rpc.get(k), "rest": rest.get(k), "custom": custom.get(k, "")} for k in keys]

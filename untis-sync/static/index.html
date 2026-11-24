@@ -183,9 +183,16 @@
   .seg button.sb small { display: block; font: 400 11.5px Arial, sans-serif; color: var(--muted); margin-top: 2px; }
   .seg button.sb[aria-pressed="true"] { background: var(--teal); color: #fff; }
   .seg button.sb[aria-pressed="true"] small { color: #ffffffcc; }
-  .namex { display: grid; grid-template-columns: auto 1fr 1fr; gap: 2px 10px; font-size: 12.5px; color: var(--muted); }
-  .namex b { font-weight: 600; color: var(--ink); }
-  .namex .on { color: var(--ink); font-weight: 600; }
+  .namex { display: grid; gap: 6px; }
+  .nrow { display: grid; grid-template-columns: 1fr minmax(120px, 46%); gap: 10px; align-items: center; }
+  .nrow b { font: 700 14px var(--head); color: var(--ink); }
+  .nrow small { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+  .nrow small .on { color: var(--ink); font-weight: 600; }
+  .nrow input { width: 100%; padding: 8px 10px; font-size: 15px; color: var(--ink);
+                background: var(--soft); border: 1px solid var(--line); border-radius: 2px; }
+  .nrow input:focus { outline: 2px solid var(--blue); outline-offset: 0; }
+  .nrow input.saved { border-color: var(--teal); }
+  .nhint { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
 
   /* ---------- Bottom Sheet ---------- */
   .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .4); display: none; z-index: 10; }
@@ -288,7 +295,7 @@
     </div>
     <div class="set col">
       <div><b>Fachnamen im Kalender</b>
-        <small>Die beiden WebUntis-Schnittstellen schreiben Fächer teils unterschiedlich – die Auswahl gilt für alle Termine</small></div>
+        <small>Die beiden WebUntis-Schnittstellen schreiben Fächer teils unterschiedlich – die Auswahl gilt für alle Termine. Eigene Namen gehen immer vor.</small></div>
       <div class="seg" role="group" aria-label="Fachnamen">
         <button class="sb" data-names="short" aria-pressed="false">Kurz<small>z. B. CH</small></button>
         <button class="sb" data-names="rpc" aria-pressed="false">Schnittstelle 1<small>alte API</small></button>
@@ -515,15 +522,7 @@ function renderSettings(s) {
   $("wMinus").disabled = w <= s.weeks_min; $("wPlus").disabled = w >= s.weeks_max;
   $("fillSw").checked = s.fill_missing;
   document.querySelectorAll("[data-names]").forEach(b => b.setAttribute("aria-pressed", b.dataset.names === s.names));
-  const ex = s.name_examples || [];
-  const col = k => k === s.names ? ' class="on"' : "";
-  $("nameEx").innerHTML = ex.length
-    ? `<span></span><span${col("rpc")}>Schnittstelle 1</span><span${col("rest")}>Schnittstelle 2</span>` + ex.map(e => {
-        return `<b${s.names === "short" ? ' class="on"' : ""}>${esc(e.short)}</b>`
-          + `<span${col("rpc")}>${esc(e.rpc || "–")}</span>`
-          + `<span${col("rest")}>${esc(e.rest || "–")}</span>`;
-      }).join("")
-    : "";
+  renderNames(s);
   const proj = (s.lessons || []).filter(l => l.projected).length;
   let note = "";
   if (s.untis_until) note = `WebUntis liefert den Stundenplan aktuell bis ${ddmm(s.untis_until)}`;
@@ -551,6 +550,37 @@ function stepWeeks(delta) {
 }
 $("wMinus").onclick = () => stepWeeks(-1);
 $("wPlus").onclick = () => stepWeeks(1);
+// Fächerliste mit eigenen Namen – nur neu zeichnen, wenn sich etwas geändert hat
+// und gerade kein Feld bearbeitet wird (sonst springt der Cursor)
+let namesSig = "";
+function renderNames(s) {
+  const subs = s.subjects || [];
+  const sig = JSON.stringify([s.names, subs]);
+  const box = $("nameEx");
+  if (sig === namesSig || box.contains(document.activeElement)) return;
+  namesSig = sig;
+  if (!subs.length) { box.innerHTML = '<p class="nhint">Fächer erscheinen nach dem ersten Sync.</p>'; return; }
+  const on = k => k === s.names ? ' class="on"' : "";
+  box.innerHTML = subs.map(e => {
+    const auto = s.names === "short" ? e.short : (s.names === "rest" ? e.rest : e.rpc) || e.rpc || e.rest || e.short;
+    return `<div class="nrow"><div><b>${esc(e.short)}</b>
+        <small><span${on("rpc")}>1: ${esc(e.rpc || "–")}</span> · <span${on("rest")}>2: ${esc(e.rest || "–")}</span></small></div>
+      <input data-short="${esc(e.short)}" value="${esc(e.custom)}" placeholder="${esc(auto)}"
+             aria-label="Eigener Name für ${esc(e.short)}" maxlength="60" enterkeyhint="done" autocomplete="off"></div>`;
+  }).join("") + '<p class="nhint">Leer lassen = Auswahl oben. Gespeichert wird beim Verlassen des Feldes.</p>';
+  box.querySelectorAll("input").forEach(inp => {
+    inp.dataset.orig = inp.value;
+    inp.onkeydown = ev => { if (ev.key === "Enter") inp.blur(); };
+    inp.onblur = () => {
+      const v = inp.value.trim();
+      if (v === inp.dataset.orig) return;
+      inp.dataset.orig = v; inp.classList.add("saved");
+      namesSig = "";      // nach dem Speichern neu zeichnen
+      saveSettings({custom_names: {[inp.dataset.short]: v}},
+        v ? `${inp.dataset.short} heißt jetzt „${v}“` : `${inp.dataset.short}: eigener Name entfernt`);
+    };
+  });
+}
 document.querySelectorAll("[data-names]").forEach(b => b.onclick = () => {
   if (!S || b.dataset.names === S.names) return;
   const label = {short: "Kurznamen", rpc: "Namen aus Schnittstelle 1", rest: "Namen aus Schnittstelle 2"}[b.dataset.names];

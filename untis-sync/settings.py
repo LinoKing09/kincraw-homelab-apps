@@ -17,7 +17,8 @@ _lock = threading.Lock()
 def _defaults() -> dict:
     return {"weeks": min(max(config.WEEKS_AHEAD, WEEKS_MIN), WEEKS_MAX),
             "fill_missing": config.FILL_MISSING,
-            "names": names.default_mode()}
+            "names": names.default_mode(),
+            "custom_names": {}}
 
 
 def load() -> dict:
@@ -33,11 +34,15 @@ def load() -> dict:
         s["fill_missing"] = d["fill_missing"]
     if d.get("names") in names.MODES:
         s["names"] = d["names"]
+    if isinstance(d.get("custom_names"), dict):
+        s["custom_names"] = {str(k): str(v) for k, v in d["custom_names"].items() if v}
     return s
 
 
 def update(p: dict) -> dict:
-    """Übernimmt 'weeks', 'fill_missing' und/oder 'names'; wirft ValueError bei Unsinn."""
+    """Übernimmt 'weeks', 'fill_missing', 'names' und/oder 'custom_names'
+    (wird ergänzt: {"g2": "Geschichte"} setzt, {"g2": ""} entfernt);
+    wirft ValueError bei Unsinn."""
     with _lock:
         s = load()
         if "weeks" in p:
@@ -53,6 +58,19 @@ def update(p: dict) -> dict:
             if p["names"] not in names.MODES:
                 raise ValueError("Fachnamen: short, rpc oder rest.")
             s["names"] = p["names"]
+        if "custom_names" in p:
+            if not isinstance(p["custom_names"], dict):
+                raise ValueError("custom_names muss ein Objekt sein.")
+            cn = dict(s["custom_names"])
+            for k, v in p["custom_names"].items():
+                k, v = str(k).strip(), str(v or "").strip()
+                if not k or len(k) > 30 or len(v) > 60:
+                    raise ValueError("Fachname zu lang (höchstens 60 Zeichen).")
+                if v:
+                    cn[k] = v
+                else:
+                    cn.pop(k, None)
+            s["custom_names"] = cn
         os.makedirs(config.DATA_DIR, exist_ok=True)
         tmp = PATH + ".tmp"
         with open(tmp, "w") as f:

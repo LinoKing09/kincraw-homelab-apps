@@ -120,7 +120,8 @@ def _do_sync(trigger: str, fetch: bool) -> dict:
                 all_lessons = real
         else:
             all_lessons = [Lesson.from_dict(d) for d in cached if d["day"] <= end.isoformat()]
-        names.apply(all_lessons, cfg["names"], extra.get("subject_names") or st0.get("subject_names") or {})
+        names.apply(all_lessons, cfg["names"], extra.get("subject_names") or st0.get("subject_names") or {},
+                    cfg["custom_names"])
 
         excl.prune(today.isoformat())
         ex = excl.load()
@@ -319,7 +320,7 @@ def status():
         "weeks_max": settings.WEEKS_MAX,
         "fill_missing": cfg["fill_missing"],
         "names": cfg["names"],
-        "name_examples": names.examples(st.get("subject_names") or {}),
+        "subjects": names.subjects(st.get("subject_names") or {}, cfg["custom_names"]),
         "untis_until": st.get("untis_until"),
         "holidays_known": st.get("holidays_known"),
         "next_auto": _next_auto["at"],
@@ -356,12 +357,14 @@ def exclusions():
 def save_settings():
     p = request.get_json(silent=True) or {}
     try:
-        cfg = settings.update({k: p[k] for k in ("weeks", "fill_missing", "names") if k in p})
+        cfg = settings.update({k: p[k] for k in ("weeks", "fill_missing", "names", "custom_names") if k in p})
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     syncing = gcal.is_connected() and config.untis_configured()
     if syncing:
-        request_sync("Einstellungen geändert", fetch=True)
+        # Nur Namen geändert: Kalender mit den vorhandenen Stunden neu beschriften,
+        # ohne WebUntis erneut abzufragen
+        request_sync("Einstellungen geändert", fetch=("weeks" in p or "fill_missing" in p))
     return jsonify({"ok": True, "syncing": syncing, **cfg})
 
 

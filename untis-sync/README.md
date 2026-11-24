@@ -51,6 +51,11 @@ Die beiden Schnittstellen schreiben Fächer teils unterschiedlich (z. B. „Chem
 woher die Stunde stammt (die App merkt sich je Kurzname beide Schreibweisen).
 Startwert: `USE_LONG_SUBJECT_NAMES` (1 = Schnittstelle 1, 0 = Kurz).
 
+Darunter lässt sich jedem Fach ein **eigener Name** geben (z. B. g2 → „Geschichte“,
+CH → „Chemie“). Eigene Namen gehen immer vor; leer = obige Auswahl. Umbenennen
+beschriftet die Kalendertermine sofort neu, ohne WebUntis erneut abzufragen.
+Gespeichert in `data/settings.json` (`custom_names`).
+
 ## Zeitraum und fehlende Wochen
 
 Unter **Einstellungen** in der Oberfläche:
