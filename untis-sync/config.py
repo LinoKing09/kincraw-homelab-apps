@@ -38,6 +38,9 @@ SYNC_INTERVAL_MIN = int(_env("SYNC_INTERVAL_MINUTES", "120"))
 CANCELLED_MODE = _env("CANCELLED_MODE", "mark")  # mark | delete
 MERGE_DOUBLE = _env("MERGE_DOUBLE_LESSONS", "1") == "1"
 MERGE_GAP_MIN = int(_env("MERGE_GAP_MINUTES", "5"))
+# Tage, die getTimetable noch nicht liefert, über die neue WebUntis-Schnittstelle
+# (wie Web-Oberfläche/App) holen. 0 = aus.
+USE_REST = _env("UNTIS_USE_REST", "1") == "1"
 
 # ---- Dateien ----------------------------------------------------------------
 DATA_DIR = _env("DATA_DIR", "/data")

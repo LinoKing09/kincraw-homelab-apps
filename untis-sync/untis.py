@@ -2,7 +2,7 @@
 import base64
 import copy
 from dataclasses import dataclass, field, asdict
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import requests
 
@@ -100,6 +100,59 @@ class UntisClient:
             "teacherFields": ["id", "name", "longname"],
         }
         return self._call("getTimetable", {"options": opts}) or []
+
+    # -------------------------------------------- neue REST-Schnittstelle ----
+    # Die Web-Oberfläche und die Untis-App nutzen eine neuere Schnittstelle.
+    # Sie zeigt oft weiter in die Zukunft als getTimetable (bei manchen Schulen
+    # zählt die Freigabe dort Schultage statt Kalendertage).
+
+    def _rest_headers(self) -> dict:
+        base = f"https://{config.UNTIS_SERVER}/WebUntis"
+        try:
+            r = self.s.get(f"{base}/api/token/new", timeout=20)
+            r.raise_for_status()
+        except requests.RequestException as e:
+            raise UntisError(f"Neue WebUntis-Schnittstelle: kein Token ({e})") from e
+        token = r.text.strip().strip('"')
+        if not token or token.startswith("<"):
+            raise UntisError("Neue WebUntis-Schnittstelle: kein Token erhalten.")
+        h = {"Authorization": f"Bearer {token}"}
+        try:   # manche Schulen verlangen zusätzlich die Mandanten-ID
+            tid = (self.s.get(f"{base}/api/rest/view/v1/app/data", headers=h, timeout=20)
+                   .json().get("tenant") or {}).get("id")
+            if tid:
+                h["Tenant-Id"] = str(tid)
+        except (requests.RequestException, ValueError, AttributeError):
+            pass
+        return h
+
+    def rest_entries(self, start: date, end: date) -> list:
+        """Rohe Einträge der neuen Schnittstelle als Liste von (Tag, Eintrag),
+        wochenweise abgefragt (wie die Web-Oberfläche)."""
+        base = f"https://{config.UNTIS_SERVER}/WebUntis"
+        headers = self._rest_headers()
+        out = []
+        week = start - timedelta(days=start.weekday())
+        while week <= end:
+            params = {"start": max(week, start).isoformat(),
+                      "end": min(week + timedelta(days=6), end).isoformat(),
+                      "format": 4, "resourceType": "STUDENT", "resources": self.person_id,
+                      "periodTypes": "", "timetableType": "MY_TIMETABLE", "layout": "START_TIME"}
+            try:
+                r = self.s.get(f"{base}/api/rest/view/v1/timetable/entries",
+                               params=params, headers=headers, timeout=20)
+                r.raise_for_status()
+                data = r.json()
+            except (requests.RequestException, ValueError) as e:
+                raise UntisError(f"Neue WebUntis-Schnittstelle: {e}") from e
+            for d in (data.get("days") or []) if isinstance(data, dict) else []:
+                try:
+                    day = date.fromisoformat(str(d.get("date"))[:10])
+                except ValueError:
+                    continue
+                out += [(day, e) for e in d.get("gridEntries") or []]
+            week += timedelta(days=7)
+        return out
 
     def holidays(self):
         """Ferien/Feiertage als Liste von (erster Tag, letzter Tag).
@@ -236,6 +289,96 @@ def normalize(raw: list) -> list:
             status=status,
             room_changed=any("orgid" in r for r in ro),
             teacher_changed=any("orgid" in t for t in te),
+            info=info,
+        ))
+    out.sort(key=lambda l: (l.day, l.start, l.subject))
+    return out
+
+
+# Einträge der neuen Schnittstelle, die kein Unterricht sind
+_REST_SKIP_TYPES = {"BREAK_SUPERVISION", "OFFICE_HOUR", "STANDBY"}
+
+
+def _rest_elements(entry: dict, kind: str) -> list:
+    """Alle Elemente eines Typs (TEACHER/SUBJECT/ROOM/CLASS) aus position1..7."""
+    out = []
+    for i in range(1, 8):
+        for el in entry.get(f"position{i}") or []:
+            cur, rem = el.get("current"), el.get("removed")
+            if (cur or rem or {}).get("type") == kind:
+                out.append((cur, rem))
+    return out
+
+
+def _rest_text(v) -> list:
+    if not v:
+        return []
+    if isinstance(v, str):
+        return [v.strip()] if v.strip() else []
+    if isinstance(v, dict):
+        return _rest_text(v.get("text") or v.get("value"))
+    if isinstance(v, list):
+        return [t for x in v for t in _rest_text(x)]
+    return []
+
+
+def normalize_rest(entries: list) -> list:
+    """(Tag, Eintrag) der neuen Schnittstelle -> Lesson (wie normalize)."""
+    out, seen = [], set()
+    for day, e in entries:
+        typ = str(e.get("type") or "").upper()
+        if typ in _REST_SKIP_TYPES:
+            continue
+        dur = e.get("duration") or {}
+        try:
+            start = datetime.fromisoformat(dur["start"]).time()
+            end = datetime.fromisoformat(dur["end"]).time()
+        except (KeyError, TypeError, ValueError):
+            continue
+        ids = e.get("ids") or []
+        key = f"{day:%Y%m%d}-{ids[0]}" if ids else alt_key(day, start, "x")
+        if key in seen:
+            continue
+        seen.add(key)
+
+        st = str(e.get("status") or "REGULAR").upper()
+        if "CANCEL" in st:
+            status = "cancelled"
+        elif "EXAM" in typ or "EXAM" in st:
+            status = "exam"
+        elif st != "REGULAR" or e.get("moved"):
+            status = "irregular"
+        else:
+            status = "normal"
+
+        subs = [c for c, _ in _rest_elements(e, "SUBJECT") if c]
+        if subs:
+            subject = subs[0].get("shortName") or subs[0].get("displayName") or "Unterricht"
+            subject_long = subs[0].get("longName") or subject
+        else:
+            subject = subject_long = (e.get("name") or (_rest_text(e.get("lessonText")) or [None])[0]
+                                      or "Unterricht")
+
+        def names(kind):
+            return [c.get("shortName") or c.get("displayName")
+                    for c, _ in _rest_elements(e, kind) if c and (c.get("shortName") or c.get("displayName"))]
+
+        def changed(kind):
+            return any(r is not None or str((c or {}).get("status") or "REGULAR").upper() != "REGULAR"
+                       for c, r in _rest_elements(e, kind))
+
+        info = []
+        for t in (_rest_text(e.get("substitutionText")) + _rest_text(e.get("lessonText"))
+                  + _rest_text(e.get("lessonInfo")) + _rest_text(e.get("texts"))
+                  + _rest_text(e.get("notesAll"))):
+            if t not in info and t != subject_long:
+                info.append(t)
+
+        out.append(Lesson(
+            key=key, day=day, start=start, end=end,
+            subject=subject, subject_long=subject_long,
+            rooms=names("ROOM"), teachers=names("TEACHER"), classes=names("CLASS"),
+            status=status, room_changed=changed("ROOM"), teacher_changed=changed("TEACHER"),
             info=info,
         ))
     out.sort(key=lambda l: (l.day, l.start, l.subject))

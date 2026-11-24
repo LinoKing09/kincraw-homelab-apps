@@ -1,0 +1,116 @@
+"""Tests für die neue WebUntis-Schnittstelle (REST) und das Zusammenspiel mit getTimetable."""
+import datetime as dt
+import os
+import sys
+import tempfile
+
+os.environ.setdefault("DISABLE_SCHEDULER", "1")
+os.environ.setdefault("DATA_DIR", tempfile.mkdtemp(prefix="untis-test-"))
+for k, v in {"UNTIS_SERVER": "x", "UNTIS_SCHOOL": "s", "UNTIS_USER": "u", "UNTIS_PASSWORD": "p"}.items():
+    os.environ.setdefault(k, v)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+import app as appmod  # noqa: E402
+import config  # noqa: E402
+import untis  # noqa: E402
+
+D = dt.date(2026, 12, 1)
+
+
+def el(kind, short, long=None, status="REGULAR"):
+    return {"type": kind, "status": status, "shortName": short, "longName": long or short,
+            "displayName": short, "displayNameLabel": "NAME"}
+
+
+def entry(ids, start, end, subject, teacher="ABC", room="1.01", status="REGULAR", typ="NORMAL_TEACHING_PERIOD",
+          teacher_removed=None, room_removed=None, **extra):
+    e = {"ids": ids, "duration": {"start": f"{D}T{start}", "end": f"{D}T{end}"},
+         "type": typ, "status": status, "statusDetail": None, "name": None,
+         "position1": [{"current": el("TEACHER", teacher, "Lehrkraft"), "removed": teacher_removed}],
+         "position2": [{"current": el("SUBJECT", subject, subject.upper()), "removed": None}],
+         "position3": [{"current": el("ROOM", room, "Unterrichtsraum"), "removed": room_removed}],
+         "position4": None, "texts": [], "lessonText": "", "lessonInfo": None,
+         "substitutionText": "", "notesAll": "", "moved": None}
+    e.update(extra)
+    return e
+
+
+def test_normalize_rest_wie_im_echten_format():
+    ls = untis.normalize_rest([
+        (D, entry([473736, 473739], "07:50", "09:20", "g2", room="1.03")),
+        (D, entry([5], "09:45", "10:30", "M1", status="CANCELLED")),
+        (D, entry([6], "10:30", "11:15", "d2", status="CHANGED", substitutionText="Vertretung",
+                  teacher_removed=el("TEACHER", "XYZ"))),
+        (D, entry([7], "11:25", "12:10", "PH", room="0.15", room_removed=el("ROOM", "0.14"))),
+        (D, entry([8], "12:10", "12:55", "CH", typ="EXAM", lessonText="Klausur")),
+        (D, entry([9], "13:00", "13:20", "AUF", typ="BREAK_SUPERVISION")),
+    ])
+    by = {l.subject: l for l in ls}
+    g2 = by["g2"]
+    assert g2.key == "20261201-473736"                 # wie getTimetable: Datum + erste Perioden-ID
+    assert (g2.start, g2.end) == (dt.time(7, 50), dt.time(9, 20))
+    assert g2.subject_long == "G2" and g2.rooms == ["1.03"] and g2.teachers == ["ABC"]
+    assert g2.status == "normal" and not g2.room_changed and not g2.teacher_changed
+    assert by["M1"].status == "cancelled"
+    assert by["d2"].status == "irregular" and by["d2"].teacher_changed and "Vertretung" in by["d2"].info
+    assert by["PH"].room_changed and by["PH"].status == "normal"
+    assert by["CH"].status == "exam" and by["CH"].info == ["Klausur"]
+    assert "AUF" not in by                              # Pausenaufsicht ist kein Unterricht
+
+
+class FakeClient:
+    """getTimetable liefert nur Montag, REST Montag bis Mittwoch (wie im echten Fall)."""
+    calls = []
+
+    def __init__(self, rest_fails=False):
+        self.rest_fails = rest_fails
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
+
+    def timetable(self, start, end):
+        mon = dt.date(2026, 11, 30)
+        return [{"id": 100, "date": int(mon.strftime("%Y%m%d")), "startTime": 750, "endTime": 920,
+                 "su": [{"name": "g2", "longname": "g2"}], "ro": [{"name": "1.03"}], "te": [{"name": "ABC"}]}]
+
+    def holidays(self):
+        return []
+
+    def rest_entries(self, start, end):
+        FakeClient.calls.append((start, end))
+        if self.rest_fails:
+            raise untis.UntisError("Neue WebUntis-Schnittstelle: 401")
+        out = []
+        for i in range(3):     # Mo, Di, Mi
+            day = dt.date(2026, 11, 30) + dt.timedelta(days=i)
+            e = entry([200 + i], "09:45", "11:15", "M1")
+            e["duration"] = {"start": f"{day}T09:45", "end": f"{day}T11:15"}
+            out.append((day, e))
+        return out
+
+
+def test_rest_ergaenzt_nur_die_tage_danach(monkeypatch):
+    FakeClient.calls.clear()
+    monkeypatch.setattr(appmod, "UntisClient", lambda: FakeClient())
+    lessons, _ = appmod._fetch_lessons(dt.date(2026, 11, 30), dt.date(2026, 12, 4))
+    assert FakeClient.calls == [(dt.date(2026, 12, 1), dt.date(2026, 12, 4))]
+    days = [(l.day.isoformat(), l.subject) for l in lessons]
+    # Montag nur aus getTimetable (kein doppeltes M1 vom Montag), Di + Mi aus REST
+    assert days == [("2026-11-30", "g2"), ("2026-12-01", "M1"), ("2026-12-02", "M1")]
+
+
+def test_rest_fehler_bricht_sync_nicht_ab(monkeypatch):
+    monkeypatch.setattr(appmod, "UntisClient", lambda: FakeClient(rest_fails=True))
+    lessons, _ = appmod._fetch_lessons(dt.date(2026, 11, 30), dt.date(2026, 12, 4))
+    assert [l.subject for l in lessons] == ["g2"]
+
+
+def test_rest_abschaltbar(monkeypatch):
+    FakeClient.calls.clear()
+    monkeypatch.setattr(config, "USE_REST", False)
+    monkeypatch.setattr(appmod, "UntisClient", lambda: FakeClient())
+    lessons, _ = appmod._fetch_lessons(dt.date(2026, 11, 30), dt.date(2026, 12, 4))
+    assert FakeClient.calls == [] and len(lessons) == 1

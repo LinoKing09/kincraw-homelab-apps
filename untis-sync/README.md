@@ -36,6 +36,15 @@ In der Wochenansicht (◀ ▶ zum Blättern):
 Ausgeblendetes wird sofort aus dem Kalender gelöscht und auch vom Auto-Sync
 nicht wieder eingetragen. Gespeichert in `data/exclusions.json`.
 
+## Woher die Stunden kommen
+
+1. **getTimetable** (ältere WebUntis-Schnittstelle) – Hauptquelle.
+2. **Neue Schnittstelle** der Web-Oberfläche/App – ergänzt die Tage danach. Manche
+   Schulen geben dort weiter im Voraus frei (z. B. „7 Tage“ als Schultage statt
+   Kalendertage). Fällt sie aus, läuft der Sync ohne sie weiter (Hinweis im Log).
+   Abschalten: `UNTIS_USE_REST=0` in der `.env`.
+3. **Auffüllen** (siehe unten) – erst nach dem letzten Tag, den eine der beiden liefert.
+
 ## Zeitraum und fehlende Wochen
 
 Unter **Einstellungen** in der Oberfläche:

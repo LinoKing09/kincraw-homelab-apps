@@ -14,7 +14,7 @@ import excl
 import gcal
 import project
 import settings
-from untis import Lesson, UntisClient, UntisError, normalize, merge_double_lessons
+from untis import Lesson, UntisClient, UntisError, normalize, normalize_rest, merge_double_lessons
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("untis-sync")
@@ -59,11 +59,26 @@ def _now():
 # =============================================================== Sync =====
 
 def _fetch_lessons(week_start, end):
-    """Echte Stunden aus WebUntis + Ferienliste (None, wenn nicht abrufbar)."""
+    """Echte Stunden aus WebUntis + Ferienliste (None, wenn nicht abrufbar).
+
+    Hauptquelle ist getTimetable. Tage danach, die nur die neue Schnittstelle
+    (Web-Oberfläche/App) schon zeigt, werden von dort ergänzt. Fällt die neue
+    Schnittstelle aus, läuft der Sync ohne sie weiter."""
     with UntisClient() as u:
-        raw = u.timetable(week_start, end)
+        lessons = normalize(u.timetable(week_start, end))
         holidays = u.holidays()
-    lessons = normalize(raw)
+        rest_from = (max(l.day for l in lessons) + timedelta(days=1)) if lessons else week_start
+        if config.USE_REST and rest_from <= end:
+            try:
+                extra = [l for l in normalize_rest(u.rest_entries(rest_from, end))
+                         if rest_from <= l.day <= end]
+                if extra:
+                    log.info("Neue Schnittstelle: %d Stunden bis %s ergänzt",
+                             len(extra), max(l.day for l in extra).isoformat())
+                lessons += extra
+            except UntisError as e:
+                log.warning("%s – weiter ohne", e)
+    lessons.sort(key=lambda l: (l.day, l.start, l.subject))
     if config.MERGE_DOUBLE:
         lessons = merge_double_lessons(lessons, config.MERGE_GAP_MIN)
     return lessons, holidays
