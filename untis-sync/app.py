@@ -1,3 +1,4 @@
+import hmac
 import json
 import logging
 import os
@@ -5,7 +6,7 @@ import threading
 import time
 from datetime import date, datetime, timedelta
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from googleapiclient.errors import HttpError
 
 import config
@@ -19,6 +20,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("untis-sync")
 
 app = Flask(__name__, static_folder="static")
+app.secret_key = config.get_secret_key()
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=config.LOGIN_DAYS)
+if not config.APP_PASSWORD:
+    log.warning("APP_PASSWORD ist nicht gesetzt – die Oberfläche ist ohne Anmeldung "
+                "erreichbar. Nur im Heimnetz betreiben!")
 _sync_lock = threading.Lock()      # nur ein Sync gleichzeitig
 _state_lock = threading.Lock()
 _queue_lock = threading.Lock()
@@ -177,6 +185,72 @@ if os.environ.get("DISABLE_SCHEDULER") != "1" and config.SYNC_INTERVAL_MIN > 0:
     threading.Thread(target=_scheduler, daemon=True, name="scheduler").start()
 
 
+# ======================================================= Zugangsschutz =====
+
+# Ohne Anmeldung erreichbar: Login, Healthcheck und PWA-Dateien
+_PUBLIC_ENDPOINTS = {"login", "healthz", "manifest", "static"}
+_MAX_FAILS = 5
+_LOCK_SECONDS = 5 * 60
+_fails = {}                     # ip -> (anzahl, gesperrt_bis)
+_fails_lock = threading.Lock()
+
+
+def _logged_in() -> bool:
+    return not config.APP_PASSWORD or session.get("logged_in") is True
+
+
+def _safe_next(target: str) -> str:
+    # nur relative Pfade innerhalb der App, kein "//host"
+    if target and target.startswith("/") and not target.startswith("//"):
+        return target
+    return url_for("index")
+
+
+@app.before_request
+def require_login():
+    if _logged_in() or request.endpoint in _PUBLIC_ENDPOINTS:
+        return None
+    if request.path.startswith("/api/") or request.method != "GET":
+        return jsonify({"error": "Nicht angemeldet – bitte Seite neu laden."}), 401
+    return redirect(url_for("login", next=request.full_path.rstrip("?")))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not config.APP_PASSWORD:
+        return redirect(url_for("index"))
+    nxt = _safe_next(request.values.get("next", ""))
+    ip = request.remote_addr or "?"
+    error = None
+    if request.method == "POST":
+        now = time.time()
+        with _fails_lock:
+            count, locked_until = _fails.get(ip, (0, 0))
+        if locked_until > now:
+            error = f"Zu viele Fehlversuche – bitte in {int((locked_until - now) // 60) + 1} Minuten erneut versuchen."
+        elif hmac.compare_digest(request.form.get("password", "").encode(), config.APP_PASSWORD.encode()):
+            with _fails_lock:
+                _fails.pop(ip, None)
+            session.clear()
+            session.permanent = True
+            session["logged_in"] = True
+            return redirect(nxt)
+        else:
+            count += 1
+            with _fails_lock:
+                _fails[ip] = (0, now + _LOCK_SECONDS) if count >= _MAX_FAILS else (count, 0)
+            error = "Falsches Passwort."
+    elif _logged_in():
+        return redirect(nxt)
+    return render_template("login.html", error=error, next=nxt), (401 if error else 200)
+
+
+@app.post("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login") if config.APP_PASSWORD else url_for("index"))
+
+
 # ============================================================= Routes =====
 
 @app.get("/")
@@ -213,6 +287,7 @@ def status():
         d["past"] = d["day"] < today.isoformat()
         lessons.append(d)
     return jsonify({
+        "password_enabled": bool(config.APP_PASSWORD),
         "google_connected": gcal.is_connected(),
         "untis_configured": config.untis_configured(),
         "untis_school": config.UNTIS_SCHOOL,

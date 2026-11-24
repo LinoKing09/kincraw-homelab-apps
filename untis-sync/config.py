@@ -1,5 +1,6 @@
 """Zentrale Konfiguration – alles über Umgebungsvariablen (.env) steuerbar."""
 import os
+import secrets
 
 
 def _env(name, default=None):
@@ -45,6 +46,33 @@ STATE_PATH = os.path.join(DATA_DIR, "state.json")
 CLIENT_SECRET_PATH = _env("CLIENT_SECRET_PATH", "/app/client_secret.json")
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
+SECRET_KEY_PATH = os.path.join(DATA_DIR, "secret_key")
+
+# ---- Zugangsschutz für die Oberfläche ----------------------------------------
+# Nicht verwechseln mit UNTIS_PASSWORD (das ist der WebUntis-Login)!
+# Ist APP_PASSWORD gesetzt, verlangt die Oberfläche eine Anmeldung. Leer = offen.
+APP_PASSWORD = _env("APP_PASSWORD", "")
+LOGIN_DAYS = int(_env("APP_LOGIN_DAYS", "90"))
+
+
+def get_secret_key() -> str:
+    """Schlüssel für das Anmelde-Cookie; wird einmalig in data/secret_key erzeugt,
+    damit Anmeldungen einen Neustart überstehen."""
+    env = _env("APP_SECRET_KEY")
+    if env:
+        return env
+    try:
+        with open(SECRET_KEY_PATH) as f:
+            key = f.read().strip()
+            if key:
+                return key
+    except OSError:
+        pass
+    key = secrets.token_hex(32)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(SECRET_KEY_PATH, "w") as f:
+        f.write(key)
+    return key
 
 
 def untis_configured() -> bool:

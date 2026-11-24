@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stundenplan Sync – Anmelden</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0c2f52">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23fff'/%3E%3Crect x='12' y='14' width='40' height='7' rx='2' fill='%23008F7D'/%3E%3Crect x='12' y='25' width='40' height='7' rx='2' fill='%230080C8'/%3E%3Crect x='12' y='36' width='40' height='7' rx='2' fill='%23E3000F'/%3E%3Crect x='12' y='47' width='40' height='7' rx='2' fill='%23FFB603'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --teal: #008f7d; --blue: #0080c8; --red: #e3000f; --gold: #ffb603;
+    --navy: #0c2f52; --ink: #232628; --text: #4f5052; --muted: #7b7c7e;
+    --bg: #f3f3f2; --card: #ffffff; --line: #e2e2e0; --soft: #f7f7f6;
+    --head: "Libre Franklin", Arial, Helvetica, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #f1f2f3; --text: #c9ccd0; --muted: #9196a0;
+            --bg: #121518; --card: #1b1f23; --line: #2c3238; --soft: #22272c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; font: 16px/1.5 Arial, Helvetica, sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { background: var(--card); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 480px; margin: 0 auto; padding: calc(14px + env(safe-area-inset-top)) 16px 14px;
+         display: flex; align-items: center; gap: 12px; }
+  .mark { display: grid; gap: 3px; width: 34px; flex: none; }
+  .mark i { display: block; height: 5px; border-radius: 2px; }
+  .mark i:nth-child(1) { background: var(--teal); } .mark i:nth-child(2) { background: var(--blue); }
+  .mark i:nth-child(3) { background: var(--red); }  .mark i:nth-child(4) { background: var(--gold); }
+  .brand b { display: block; font: 700 18px/1.15 var(--head); color: var(--ink); }
+  .brand span { font-size: 12.5px; color: var(--muted); }
+  .hero { background: var(--navy); color: #fff; }
+  .hero .inner { max-width: 480px; margin: 0 auto; padding: 24px 16px 54px; }
+  .hero h1 { margin: 0; font: 600 28px/1.15 var(--head); }
+  main { max-width: 480px; margin: -34px auto 40px; padding: 0 12px; }
+  form { background: var(--card); border-top: 6px solid var(--teal); border-radius: 2px;
+         padding: 18px; box-shadow: 0 1px 3px rgb(0 0 0 / .08); }
+  label { display: block; font: 600 14px var(--head); color: var(--ink); margin-bottom: 6px; }
+  input[type=password] { width: 100%; padding: 12px; font-size: 16px; color: var(--ink);
+         background: var(--soft); border: 1px solid var(--line); border-radius: 2px; }
+  input[type=password]:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
+  button { width: 100%; margin-top: 14px; padding: 13px; border: 0; border-radius: 2px; cursor: pointer;
+           font: 600 15px var(--head); background: var(--gold); color: #232628; }
+  .err { margin-bottom: 14px; padding: 10px 12px; font-size: 14px; color: var(--ink);
+         background: #e3000f14; border-left: 4px solid var(--red); }
+  .sub { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="brand"><b>Stundenplan Sync</b><span>WebUntis → Google Kalender</span></div>
+  </div>
+</header>
+<section class="hero"><div class="inner"><h1>Anmelden</h1></div></section>
+<main>
+  <form method="post" action="/login">
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <label for="pw">Passwort</label>
+    <input type="password" id="pw" name="password" autocomplete="current-password" autofocus required>
+    <button type="submit">Anmelden</button>
+    <p class="sub">Dieses Gerät bleibt mehrere Wochen angemeldet.</p>
+  </form>
+</main>
+</body>
+</html>

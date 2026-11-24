@@ -87,6 +87,21 @@ def test_feiertag_in_vorlagewoche_nimmt_vorwoche():
     assert any(l.projected and l.day == w2 + dt.timedelta(days=7) for l in out)   # Montag wieder da
 
 
+def test_teilweise_veroeffentlichte_woche_wird_aufgefuellt():
+    # WebUntis liefert Woche 1 komplett, von Woche 2 nur den Montag (wie bei KW 49)
+    w2 = MON + dt.timedelta(days=7)
+    rs = week(MON, 100) + [r for r in week(w2, 200) if r["date"] == int(w2.strftime("%Y%m%d"))]
+    end = w2 + dt.timedelta(days=11)                          # bis Freitag Woche 3
+    out, tpl, n = project.fill_missing(lessons(rs), MON, end, [], None)
+    proj = [l for l in out if l.projected]
+    days = {l.day for l in proj}
+    # Di–Fr von Woche 2 sind aufgefüllt, der echte Montag bleibt echt
+    assert {w2 + dt.timedelta(days=i) for i in range(1, 5)} <= days and w2 not in days
+    # Woche 3 komplett (Mo aus Woche 2, Di–Fr aus Woche 1), nicht nur der Montag
+    assert {w2 + dt.timedelta(days=7 + i) for i in range(5)} <= days
+    assert n == 4 * 2 + 5 * 2 and tpl["source_week"] == w2.isoformat()
+
+
 def test_gespeicherte_vorlage_wenn_untis_nichts_liefert():
     _, tpl, _ = project.fill_missing(lessons(week(MON, 100)), MON, MON + dt.timedelta(days=4), [], None)
     out, tpl2, n = project.fill_missing([], MON, MON + dt.timedelta(days=4), [], tpl)

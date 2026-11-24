@@ -48,15 +48,34 @@ Unter **Einstellungen** in der Oberfläche:
   Wochenansicht gestrichelt (≈) und tragen im Kalender den Hinweis
   „Vorläufig“. Sobald WebUntis die Woche veröffentlicht, ersetzt der echte
   Plan die Kopie; „nur diesmal entfernt“ bleibt dabei erhalten.
-  - Kopiert wird nur **hinter** der letzten Woche mit echten Stunden. Leere
-    Wochen dazwischen (Ferien) bleiben leer, Ferien- und Feiertage laut
+  - Kopiert wird ab dem Tag **nach** dem letzten Tag mit echten Stunden –
+    auch der Rest einer Woche, von der WebUntis erst einzelne Tage zeigt.
+    Leere Tage davor (Ferien) bleiben leer, Ferien- und Feiertage laut
     WebUntis werden übersprungen.
+  - Vorlage ist je Wochentag die jüngste Woche mit echten Stunden an diesem Tag.
   - Einmaliges aus der Vorlagewoche wird nicht mitkopiert: Entfall zählt als
     normale Stunde, Vertretungen für entfallene Stunden fallen weg.
-  - A/B-Wochen kennt die Kopie nicht – es wird immer die letzte Woche genommen.
+  - A/B-Wochen kennt die Kopie nicht.
 
 Gespeichert in `data/settings.json`; `SYNC_WEEKS_AHEAD` und
 `FILL_MISSING_WEEKS` in der `.env` sind nur die Startwerte.
+
+## Passwortschutz
+
+In `/opt/stack/untis-sync/.env` eintragen:
+
+```
+APP_PASSWORD=dein-passwort
+```
+
+Dann `docker compose up -d untis-sync`. Ab jetzt fragt die Oberfläche nach dem
+Passwort; ein Gerät bleibt 90 Tage angemeldet (`APP_LOGIN_DAYS`). Nach 5
+Fehlversuchen ist der Login 5 Minuten gesperrt. „Abmelden“ steht unten auf der Seite.
+
+`APP_PASSWORD` ist das Passwort für **diese App** – nicht verwechseln mit
+`UNTIS_PASSWORD`, dem WebUntis-Login. Leer gelassen ist die App ohne Anmeldung
+erreichbar (nur im Heimnetz vertretbar). Enthält das Passwort ein `$`, den Wert in
+einfache Anführungszeichen setzen: `APP_PASSWORD='ab$cd'`.
 
 ## Einrichtung
 

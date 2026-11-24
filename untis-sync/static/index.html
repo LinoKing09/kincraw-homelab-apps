@@ -107,6 +107,8 @@
   details summary::-webkit-details-marker { display: none; }
   details summary::after { content: " ▾"; color: var(--muted); font-size: 14px; }
   details[open] summary::after { content: " ▴"; }
+  .linkbtn { all: unset; cursor: pointer; text-decoration: underline; color: var(--muted); }
+  .linkbtn:hover, .linkbtn:focus-visible { color: var(--ink); }
   footer { text-align: center; font-size: 12px; color: var(--muted); padding: 0 16px 28px; }
 
   /* ---------- Wochenraster ---------- */
@@ -294,6 +296,13 @@
 <div class="toast" id="toast"></div>
 
 <script>
+// Abgelaufene oder fehlende Anmeldung: zurück zur Login-Seite
+const _fetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const r = await _fetch(...args);
+  if (r.status === 401) { location.href = "/login"; throw new Error("nicht angemeldet"); }
+  return r;
+};
 const $ = id => document.getElementById(id);
 const WD = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
 const fmtDT = iso => iso ? new Date(iso).toLocaleString("de-DE", {weekday:"short", day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"}) : "–";
@@ -524,7 +533,8 @@ function render(s) {
   if (s.interval_min > 0) html += `<span class="chip">Auto alle ${s.interval_min} min</span>`;
   if (s.next_auto) html += `<span class="chip">nächster Sync ${fmtDT(s.next_auto)}</span>`;
   $("chips").innerHTML = html;
-  $("foot").textContent = `Kalender „${s.calendar}“ · ${s.weeks} ${s.weeks === 1 ? "Woche" : "Wochen"} im Voraus`;
+  $("foot").innerHTML = esc(`Kalender „${s.calendar}“ · ${s.weeks} ${s.weeks === 1 ? "Woche" : "Wochen"} im Voraus`)
+    + (s.password_enabled ? ` · <form method="post" action="/logout" style="display:inline"><button class="linkbtn">Abmelden</button></form>` : "");
   renderSettings(s);
 
   $("btnConnect").style.display = s.google_connected ? "none" : "";
