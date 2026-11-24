@@ -95,16 +95,17 @@ class FakeClient:
 def test_rest_ergaenzt_nur_die_tage_danach(monkeypatch):
     FakeClient.calls.clear()
     monkeypatch.setattr(appmod, "UntisClient", lambda: FakeClient())
-    lessons, _ = appmod._fetch_lessons(dt.date(2026, 11, 30), dt.date(2026, 12, 4))
-    assert FakeClient.calls == [(dt.date(2026, 12, 1), dt.date(2026, 12, 4))]
-    days = [(l.day.isoformat(), l.subject) for l in lessons]
-    # Montag nur aus getTimetable (kein doppeltes M1 vom Montag), Di + Mi aus REST
-    assert days == [("2026-11-30", "g2"), ("2026-12-01", "M1"), ("2026-12-02", "M1")]
+    lessons, _, rest_all = appmod._fetch_lessons(dt.date(2026, 11, 30), dt.date(2026, 12, 4))
+    # ganze Woche abgefragt (für die Namen), übernommen aber nur ab Dienstag
+    assert FakeClient.calls == [(dt.date(2026, 11, 30), dt.date(2026, 12, 4))]
+    days = [(l.day.isoformat(), l.subject, l.source) for l in lessons]
+    assert days == [("2026-11-30", "g2", "rpc"), ("2026-12-01", "M1", "rest"), ("2026-12-02", "M1", "rest")]
+    assert len(rest_all) == 3
 
 
 def test_rest_fehler_bricht_sync_nicht_ab(monkeypatch):
     monkeypatch.setattr(appmod, "UntisClient", lambda: FakeClient(rest_fails=True))
-    lessons, _ = appmod._fetch_lessons(dt.date(2026, 11, 30), dt.date(2026, 12, 4))
+    lessons, _, _ = appmod._fetch_lessons(dt.date(2026, 11, 30), dt.date(2026, 12, 4))
     assert [l.subject for l in lessons] == ["g2"]
 
 
@@ -112,5 +113,56 @@ def test_rest_abschaltbar(monkeypatch):
     FakeClient.calls.clear()
     monkeypatch.setattr(config, "USE_REST", False)
     monkeypatch.setattr(appmod, "UntisClient", lambda: FakeClient())
-    lessons, _ = appmod._fetch_lessons(dt.date(2026, 11, 30), dt.date(2026, 12, 4))
+    lessons, _, _ = appmod._fetch_lessons(dt.date(2026, 11, 30), dt.date(2026, 12, 4))
     assert FakeClient.calls == [] and len(lessons) == 1
+
+
+# ------------------------------------------------------------ Fachnamen ----
+
+def _l(subject, long, source):
+    return untis.Lesson(key="k", day=D, start=dt.time(8), end=dt.time(9),
+                        subject=subject, subject_long=long, source=source)
+
+
+def test_fachnamen_einheitlich_je_auswahl():
+    import names
+    known = names.collect([_l("CH", "Chemie", "rpc"), _l("CH", "CHEMIE", "rest"),
+                           _l("M1", "Mathematik", "rpc")], {})
+    ls = [_l("CH", "Chemie", "rpc"), _l("CH", "CHEMIE", "rest"), _l("CH", "Chemie", "copy"),
+          _l("M1", "M1-lang", "rest")]
+    names.apply(ls, "rpc", known)
+    assert [l.title for l in ls] == ["Chemie", "Chemie", "Chemie", "Mathematik"]
+    names.apply(ls, "rest", known)
+    assert [l.title for l in ls] == ["CHEMIE", "CHEMIE", "CHEMIE", "M1-lang"]   # M1: kein REST-Name bekannt
+    names.apply(ls, "short", known)
+    assert [l.title for l in ls] == ["CH", "CH", "CH", "M1"]
+    ex = names.examples(known)
+    assert ex[0] == {"short": "CH", "rpc": "Chemie", "rest": "CHEMIE"}           # Unterschiede zuerst
+
+
+def test_fachnamen_im_kalender_und_status(monkeypatch):
+    import gcal
+    import settings
+    sent = {}
+
+    def fake_sync(lessons, *a, **k):
+        sent["titles"] = sorted({l.title for l in lessons})
+        return {"added": 0, "updated": 0, "unchanged": 0, "deleted": 0}
+    today = appmod._now().date()
+
+    def fake_fetch(ws, end):
+        d = today
+        rpc = untis.Lesson(key="a", day=d, start=dt.time(23, 0), end=dt.time(23, 45),
+                           subject="CH", subject_long="Chemie")
+        rest = untis.Lesson(key="b", day=d, start=dt.time(22, 0), end=dt.time(22, 45),
+                            subject="CH", subject_long="CHEMIE", source="rest")
+        return [rpc], [], [rest]
+    monkeypatch.setattr(appmod, "_fetch_lessons", fake_fetch)
+    monkeypatch.setattr(gcal, "sync", fake_sync)
+    settings.update({"names": "rest", "fill_missing": False})
+    assert appmod.run_sync("test")["ok"] and sent["titles"] == ["CHEMIE"]
+    settings.update({"names": "short"})
+    assert appmod.run_sync("test")["ok"] and sent["titles"] == ["CH"]
+    st = appmod.app.test_client().get("/api/status").get_json()
+    assert st["names"] == "short" and st["name_examples"][0]["rest"] == "CHEMIE"
+    settings.update({"names": "rpc", "fill_missing": True})

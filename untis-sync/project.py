@@ -94,7 +94,7 @@ def fill_missing(real: list, week_start: date, end: date, holidays, stored_templ
                     end=datetime.strptime(e["end"], "%H:%M").time(),
                     subject=e["subject"], subject_long=e["subject_long"],
                     rooms=list(e["rooms"]), teachers=list(e["teachers"]), classes=list(e["classes"]),
-                    projected=True,
+                    projected=True, source="copy",
                 ))
         day += timedelta(days=1)
 

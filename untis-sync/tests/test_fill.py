@@ -119,9 +119,11 @@ def test_einmal_entfernt_gilt_auch_fuer_echte_stunde():
 # ----------------------------------------------------------- settings ----
 
 def test_settings_validierung():
-    assert settings.update({"weeks": 8, "fill_missing": False}) == {"weeks": 8, "fill_missing": False}
+    assert settings.update({"weeks": 8, "fill_missing": False}) == {"weeks": 8, "fill_missing": False,
+                                                                     "names": "rpc"}
     assert settings.load()["weeks"] == 8
-    for bad in ({"weeks": 0}, {"weeks": 99}, {"weeks": "5"}, {"weeks": True}, {"fill_missing": "ja"}):
+    for bad in ({"weeks": 0}, {"weeks": 99}, {"weeks": "5"}, {"weeks": True}, {"fill_missing": "ja"},
+                {"names": "lang"}):
         with pytest.raises(ValueError):
             settings.update(bad)
     settings.update({"weeks": 4, "fill_missing": True})
@@ -168,7 +170,7 @@ def test_ablauf_auffuellen_verkuerzen_und_echte_daten(monkeypatch):
     def fake_fetch(ws, end):
         rs = [r for w in range(published["weeks"]) for r in week(mon + dt.timedelta(days=7 * w), 1000 * (w + 1))]
         rs = [r for r in rs if ws.strftime("%Y%m%d") <= str(r["date"]) <= end.strftime("%Y%m%d")]
-        return lessons(rs), []
+        return lessons(rs), [], []
     monkeypatch.setattr(app, "_fetch_lessons", fake_fetch)
     settings.update({"weeks": 3, "fill_missing": True})
 

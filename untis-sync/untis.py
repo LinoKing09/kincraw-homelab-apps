@@ -197,6 +197,8 @@ class Lesson:
     teacher_changed: bool = False
     info: list = field(default_factory=list)
     projected: bool = False  # True = aus dem letzten Stundenplan kopiert (noch nicht in WebUntis)
+    source: str = "rpc"      # rpc = getTimetable, rest = neue Schnittstelle, copy = aufgefüllt
+    display: str = ""        # Titel in der gewählten Schreibweise (names.apply)
 
     @property
     def alt_key(self) -> str:
@@ -204,6 +206,8 @@ class Lesson:
 
     @property
     def title(self) -> str:
+        if self.display:
+            return self.display
         return self.subject_long if config.USE_LONG_NAMES else self.subject
 
     @property
@@ -379,7 +383,7 @@ def normalize_rest(entries: list) -> list:
             subject=subject, subject_long=subject_long,
             rooms=names("ROOM"), teachers=names("TEACHER"), classes=names("CLASS"),
             status=status, room_changed=changed("ROOM"), teacher_changed=changed("TEACHER"),
-            info=info,
+            info=info, source="rest",
         ))
     out.sort(key=lambda l: (l.day, l.start, l.subject))
     return out

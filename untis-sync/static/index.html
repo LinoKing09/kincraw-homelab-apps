@@ -175,6 +175,17 @@
   .switch input:checked + i::after { transform: translateX(22px); }
   .switch input:focus-visible + i { outline: 2px solid var(--blue); outline-offset: 2px; }
   #setNote { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+  .set.col { flex-direction: column; align-items: stretch; gap: 8px; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); }
+  .seg button.sb { background: var(--soft); color: var(--ink); padding: 9px 4px; font: 600 13.5px var(--head);
+                   border-radius: 0; line-height: 1.2; }
+  .seg button.sb + button.sb { border-left: 1px solid var(--line); }
+  .seg button.sb small { display: block; font: 400 11.5px Arial, sans-serif; color: var(--muted); margin-top: 2px; }
+  .seg button.sb[aria-pressed="true"] { background: var(--teal); color: #fff; }
+  .seg button.sb[aria-pressed="true"] small { color: #ffffffcc; }
+  .namex { display: grid; grid-template-columns: auto 1fr 1fr; gap: 2px 10px; font-size: 12.5px; color: var(--muted); }
+  .namex b { font-weight: 600; color: var(--ink); }
+  .namex .on { color: var(--ink); font-weight: 600; }
 
   /* ---------- Bottom Sheet ---------- */
   .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .4); display: none; z-index: 10; }
@@ -274,6 +285,16 @@
       <label for="fillSw"><b>Fehlende Wochen auffüllen</b>
         <small>Steht eine Woche noch nicht in WebUntis, wird der letzte Stundenplan kopiert – ohne ausgeblendete Stunden</small></label>
       <span class="switch"><input type="checkbox" id="fillSw"><i></i></span>
+    </div>
+    <div class="set col">
+      <div><b>Fachnamen im Kalender</b>
+        <small>Die beiden WebUntis-Schnittstellen schreiben Fächer teils unterschiedlich – die Auswahl gilt für alle Termine</small></div>
+      <div class="seg" role="group" aria-label="Fachnamen">
+        <button class="sb" data-names="short" aria-pressed="false">Kurz<small>z. B. CH</small></button>
+        <button class="sb" data-names="rpc" aria-pressed="false">Schnittstelle 1<small>alte API</small></button>
+        <button class="sb" data-names="rest" aria-pressed="false">Schnittstelle 2<small>wie Untis-App</small></button>
+      </div>
+      <div class="namex" id="nameEx"></div>
     </div>
     <p id="setNote"></p>
   </section>
@@ -493,6 +514,16 @@ function renderSettings(s) {
   const w = pendingWeeks ?? s.weeks;
   $("wMinus").disabled = w <= s.weeks_min; $("wPlus").disabled = w >= s.weeks_max;
   $("fillSw").checked = s.fill_missing;
+  document.querySelectorAll("[data-names]").forEach(b => b.setAttribute("aria-pressed", b.dataset.names === s.names));
+  const ex = s.name_examples || [];
+  const col = k => k === s.names ? ' class="on"' : "";
+  $("nameEx").innerHTML = ex.length
+    ? `<span></span><span${col("rpc")}>Schnittstelle 1</span><span${col("rest")}>Schnittstelle 2</span>` + ex.map(e => {
+        return `<b${s.names === "short" ? ' class="on"' : ""}>${esc(e.short)}</b>`
+          + `<span${col("rpc")}>${esc(e.rpc || "–")}</span>`
+          + `<span${col("rest")}>${esc(e.rest || "–")}</span>`;
+      }).join("")
+    : "";
   const proj = (s.lessons || []).filter(l => l.projected).length;
   let note = "";
   if (s.untis_until) note = `WebUntis liefert den Stundenplan aktuell bis ${ddmm(s.untis_until)}`;
@@ -520,6 +551,11 @@ function stepWeeks(delta) {
 }
 $("wMinus").onclick = () => stepWeeks(-1);
 $("wPlus").onclick = () => stepWeeks(1);
+document.querySelectorAll("[data-names]").forEach(b => b.onclick = () => {
+  if (!S || b.dataset.names === S.names) return;
+  const label = {short: "Kurznamen", rpc: "Namen aus Schnittstelle 1", rest: "Namen aus Schnittstelle 2"}[b.dataset.names];
+  saveSettings({names: b.dataset.names}, label);
+});
 $("fillSw").onchange = e => saveSettings({fill_missing: e.target.checked}, e.target.checked ? "Fehlende Wochen werden aufgefüllt" : "Auffüllen ausgeschaltet");
 
 function render(s) {

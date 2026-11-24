@@ -45,6 +45,12 @@ nicht wieder eingetragen. Gespeichert in `data/exclusions.json`.
    Abschalten: `UNTIS_USE_REST=0` in der `.env`.
 3. **Auffüllen** (siehe unten) – erst nach dem letzten Tag, den eine der beiden liefert.
 
+Die beiden Schnittstellen schreiben Fächer teils unterschiedlich (z. B. „Chemie“ /
+„CHEMIE“). Unter **Einstellungen → Fachnamen im Kalender** wählst du *Kurz*,
+*Schnittstelle 1* oder *Schnittstelle 2*; die Auswahl gilt für alle Termine, egal
+woher die Stunde stammt (die App merkt sich je Kurzname beide Schreibweisen).
+Startwert: `USE_LONG_SUBJECT_NAMES` (1 = Schnittstelle 1, 0 = Kurz).
+
 ## Zeitraum und fehlende Wochen
 
 Unter **Einstellungen** in der Oberfläche:

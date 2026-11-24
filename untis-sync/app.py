@@ -12,6 +12,7 @@ from googleapiclient.errors import HttpError
 import config
 import excl
 import gcal
+import names
 import project
 import settings
 from untis import Lesson, UntisClient, UntisError, normalize, normalize_rest, merge_double_lessons
@@ -59,19 +60,21 @@ def _now():
 # =============================================================== Sync =====
 
 def _fetch_lessons(week_start, end):
-    """Echte Stunden aus WebUntis + Ferienliste (None, wenn nicht abrufbar).
+    """Echte Stunden aus WebUntis + Ferienliste (None, wenn nicht abrufbar)
+    + alle Stunden der neuen Schnittstelle (für deren Fachnamen-Schreibweise).
 
     Hauptquelle ist getTimetable. Tage danach, die nur die neue Schnittstelle
     (Web-Oberfläche/App) schon zeigt, werden von dort ergänzt. Fällt die neue
     Schnittstelle aus, läuft der Sync ohne sie weiter."""
+    rest_all = []
     with UntisClient() as u:
         lessons = normalize(u.timetable(week_start, end))
         holidays = u.holidays()
         rest_from = (max(l.day for l in lessons) + timedelta(days=1)) if lessons else week_start
-        if config.USE_REST and rest_from <= end:
+        if config.USE_REST:
             try:
-                extra = [l for l in normalize_rest(u.rest_entries(rest_from, end))
-                         if rest_from <= l.day <= end]
+                rest_all = normalize_rest(u.rest_entries(week_start, end))
+                extra = [l for l in rest_all if rest_from <= l.day <= end]
                 if extra:
                     log.info("Neue Schnittstelle: %d Stunden bis %s ergänzt",
                              len(extra), max(l.day for l in extra).isoformat())
@@ -81,7 +84,7 @@ def _fetch_lessons(week_start, end):
     lessons.sort(key=lambda l: (l.day, l.start, l.subject))
     if config.MERGE_DOUBLE:
         lessons = merge_double_lessons(lessons, config.MERGE_GAP_MIN)
-    return lessons, holidays
+    return lessons, holidays, rest_all
 
 
 def _do_sync(trigger: str, fetch: bool) -> dict:
@@ -101,7 +104,8 @@ def _do_sync(trigger: str, fetch: bool) -> dict:
         st0 = _load_state()
         cached = st0.get("lessons") or []
         if fetch or not cached:
-            real, holidays = _fetch_lessons(week_start, end)
+            real, holidays, rest_all = _fetch_lessons(week_start, end)
+            extra["subject_names"] = names.collect(real + rest_all, st0.get("subject_names") or {})
             extra["untis_until"] = max(l.day for l in real).isoformat() if real else None
             extra["holidays_known"] = holidays is not None
             if cfg["fill_missing"]:
@@ -116,6 +120,7 @@ def _do_sync(trigger: str, fetch: bool) -> dict:
                 all_lessons = real
         else:
             all_lessons = [Lesson.from_dict(d) for d in cached if d["day"] <= end.isoformat()]
+        names.apply(all_lessons, cfg["names"], extra.get("subject_names") or st0.get("subject_names") or {})
 
         excl.prune(today.isoformat())
         ex = excl.load()
@@ -313,6 +318,8 @@ def status():
         "weeks_min": settings.WEEKS_MIN,
         "weeks_max": settings.WEEKS_MAX,
         "fill_missing": cfg["fill_missing"],
+        "names": cfg["names"],
+        "name_examples": names.examples(st.get("subject_names") or {}),
         "untis_until": st.get("untis_until"),
         "holidays_known": st.get("holidays_known"),
         "next_auto": _next_auto["at"],
@@ -349,7 +356,7 @@ def exclusions():
 def save_settings():
     p = request.get_json(silent=True) or {}
     try:
-        cfg = settings.update({k: p[k] for k in ("weeks", "fill_missing") if k in p})
+        cfg = settings.update({k: p[k] for k in ("weeks", "fill_missing", "names") if k in p})
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     syncing = gcal.is_connected() and config.untis_configured()
