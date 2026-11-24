@@ -32,10 +32,10 @@ def load() -> dict:
         s["weeks"] = d["weeks"]
     if isinstance(d.get("fill_missing"), bool):
         s["fill_missing"] = d["fill_missing"]
-    if d.get("names") in names.MODES:
-        s["names"] = d["names"]
     if isinstance(d.get("custom_names"), dict):
         s["custom_names"] = {str(k): str(v) for k, v in d["custom_names"].items() if v}
+    if "names" in d:
+        s["names"] = names.normalize_mode(d["names"], s["custom_names"])
     return s
 
 
@@ -56,7 +56,7 @@ def update(p: dict) -> dict:
             s["fill_missing"] = p["fill_missing"]
         if "names" in p:
             if p["names"] not in names.MODES:
-                raise ValueError("Fachnamen: short, rpc oder rest.")
+                raise ValueError("Fachnamen: untis oder custom.")
             s["names"] = p["names"]
         if "custom_names" in p:
             if not isinstance(p["custom_names"], dict):

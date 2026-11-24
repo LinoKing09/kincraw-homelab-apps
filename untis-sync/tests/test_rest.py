@@ -124,25 +124,31 @@ def _l(subject, long, source):
                         subject=subject, subject_long=long, source=source)
 
 
-def test_fachnamen_einheitlich_je_auswahl():
+def test_fachnamen_untis_oder_eigene():
     import names
     known = names.collect([_l("CH", "Chemie", "rpc"), _l("CH", "CHEMIE", "rest"),
-                           _l("M1", "Mathematik", "rpc")], {})
+                           _l("M1", "M1", "rpc"), _l("NEU", "Neufach", "rest")], {})
     ls = [_l("CH", "Chemie", "rpc"), _l("CH", "CHEMIE", "rest"), _l("CH", "Chemie", "copy"),
-          _l("M1", "M1-lang", "rest")]
-    names.apply(ls, "rpc", known)
-    assert [l.title for l in ls] == ["Chemie", "Chemie", "Chemie", "Mathematik"]
-    names.apply(ls, "rest", known)
-    assert [l.title for l in ls] == ["CHEMIE", "CHEMIE", "CHEMIE", "M1-lang"]   # M1: kein REST-Name bekannt
-    names.apply(ls, "short", known)
-    assert [l.title for l in ls] == ["CH", "CH", "CH", "M1"]
-    # eigene Namen gehen immer vor, auch für aufgefüllte Stunden
-    names.apply(ls, "rest", known, {"CH": "Chemie", "M1": "Mathe"})
-    assert [l.title for l in ls] == ["Chemie", "Chemie", "Chemie", "Mathe"]
-    sub = names.subjects(known, {"g2": "Geschichte"})
-    assert [s["short"] for s in sub] == ["CH", "g2", "M1"]
-    assert sub[0] == {"short": "CH", "rpc": "Chemie", "rest": "CHEMIE", "custom": ""}
-    assert sub[1]["custom"] == "Geschichte"
+          _l("NEU", "Neufach", "rest"), _l("g2", "g2", "rpc")]
+    custom = {"g2": "Geschichte", "M1": "Mathe"}
+    names.apply(ls, "untis", known, custom)               # eigene Namen werden ignoriert
+    assert [l.title for l in ls] == ["Chemie", "Chemie", "Chemie", "Neufach", "g2"]
+    names.apply(ls, "custom", known, custom)              # ohne eigenen Namen: wie untis
+    assert [l.title for l in ls] == ["Chemie", "Chemie", "Chemie", "Neufach", "Geschichte"]
+    sub = {s["short"]: s for s in names.subjects(known, custom)}
+    assert sub["CH"] == {"short": "CH", "untis": "Chemie", "custom": ""}
+    assert sub["g2"]["custom"] == "Geschichte" and sub["NEU"]["untis"] == "Neufach"
+
+
+def test_alte_einstellung_wird_uebernommen(tmp_path, monkeypatch):
+    import json
+    import settings
+    p = tmp_path / "settings.json"
+    monkeypatch.setattr(settings, "PATH", str(p))
+    p.write_text(json.dumps({"names": "rest"}))
+    assert settings.load()["names"] == "untis"
+    p.write_text(json.dumps({"names": "rpc", "custom_names": {"g2": "Geschichte"}}))
+    assert settings.load()["names"] == "custom"
 
 
 def test_fachnamen_im_kalender_und_status(monkeypatch):
@@ -156,22 +162,19 @@ def test_fachnamen_im_kalender_und_status(monkeypatch):
     today = appmod._now().date()
 
     def fake_fetch(ws, end):
-        d = today
-        rpc = untis.Lesson(key="a", day=d, start=dt.time(23, 0), end=dt.time(23, 45),
-                           subject="CH", subject_long="Chemie")
-        rest = untis.Lesson(key="b", day=d, start=dt.time(22, 0), end=dt.time(22, 45),
+        rpc = untis.Lesson(key="a", day=today, start=dt.time(23, 0), end=dt.time(23, 45),
+                           subject="CH", subject_long="CHEMIE")
+        rest = untis.Lesson(key="b", day=today, start=dt.time(22, 0), end=dt.time(22, 45),
                             subject="CH", subject_long="CHEMIE", source="rest")
         return [rpc], [], [rest]
     monkeypatch.setattr(appmod, "_fetch_lessons", fake_fetch)
     monkeypatch.setattr(gcal, "sync", fake_sync)
-    settings.update({"names": "rest", "fill_missing": False})
+    settings.update({"names": "untis", "fill_missing": False, "custom_names": {"CH": "Chemie"}})
     assert appmod.run_sync("test")["ok"] and sent["titles"] == ["CHEMIE"]
-    settings.update({"names": "short"})
-    assert appmod.run_sync("test")["ok"] and sent["titles"] == ["CH"]
-    st = appmod.app.test_client().get("/api/status").get_json()
-    assert st["names"] == "short" and st["subjects"][0]["rest"] == "CHEMIE"
-    settings.update({"custom_names": {"CH": "Chemie"}})
+    settings.update({"names": "custom"})
     assert appmod.run_sync("test")["ok"] and sent["titles"] == ["Chemie"]
-    s = settings.update({"custom_names": {"CH": ""}})                   # leer = entfernen
-    assert s["custom_names"] == {}
-    settings.update({"names": "rpc", "fill_missing": True})
+    st = appmod.app.test_client().get("/api/status").get_json()
+    assert st["names"] == "custom"
+    assert {"short": "CH", "untis": "CHEMIE", "custom": "Chemie"} in st["subjects"]
+    assert settings.update({"custom_names": {"CH": ""}})["custom_names"] == {}
+    settings.update({"names": "untis", "fill_missing": True})

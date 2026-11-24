@@ -45,16 +45,17 @@ nicht wieder eingetragen. Gespeichert in `data/exclusions.json`.
    Abschalten: `UNTIS_USE_REST=0` in der `.env`.
 3. **Auffüllen** (siehe unten) – erst nach dem letzten Tag, den eine der beiden liefert.
 
-Die beiden Schnittstellen schreiben Fächer teils unterschiedlich (z. B. „Chemie“ /
-„CHEMIE“). Unter **Einstellungen → Fachnamen im Kalender** wählst du *Kurz*,
-*Schnittstelle 1* oder *Schnittstelle 2*; die Auswahl gilt für alle Termine, egal
-woher die Stunde stammt (die App merkt sich je Kurzname beide Schreibweisen).
-Startwert: `USE_LONG_SUBJECT_NAMES` (1 = Schnittstelle 1, 0 = Kurz).
+Unter **Einstellungen → Fachnamen im Kalender**:
 
-Darunter lässt sich jedem Fach ein **eigener Name** geben (z. B. g2 → „Geschichte“,
-CH → „Chemie“). Eigene Namen gehen immer vor; leer = obige Auswahl. Umbenennen
-beschriftet die Kalendertermine sofort neu, ohne WebUntis erneut abzufragen.
-Gespeichert in `data/settings.json` (`custom_names`).
+- **Von WebUntis** – Namen, wie WebUntis sie liefert, einheitlich für alle Termine
+  (egal aus welcher Schnittstelle die Stunde stammt).
+- **Eigene Bezeichnungen** – jedes Fach bekommt ein Feld, z. B. g2 → „Geschichte“,
+  CH → „Chemie“. Leere Felder = Name von WebUntis. Die eigenen Bezeichnungen bleiben
+  gespeichert, auch wenn man zurück auf „Von WebUntis“ stellt.
+
+Umbenennen beschriftet die Kalendertermine sofort neu, ohne WebUntis erneut
+abzufragen. Gespeichert in `data/settings.json` (`names`, `custom_names`).
+`USE_LONG_SUBJECT_NAMES=0` liefert bei „Von WebUntis“ die Kürzel statt der Langnamen.
 
 ## Zeitraum und fehlende Wochen
 

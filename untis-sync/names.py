@@ -1,21 +1,32 @@
-"""Fachnamen im Kalender: kurz oder lang – und beim Langnamen wahlweise in der
-Schreibweise der alten (getTimetable, "rpc") oder der neuen Schnittstelle ("rest").
+"""Fachnamen im Kalender.
 
-Beide Schnittstellen liefern teils unterschiedliche Langnamen (z. B. "Chemie" vs.
-"CHEMIE"). Die App merkt sich je Kurzname, was jede Schnittstelle liefert
-(state.json -> subject_names), und gibt allen Stunden einheitlich die gewählte
-Schreibweise – egal, aus welcher Quelle die Stunde kommt.
+Zwei Varianten (settings.json -> names):
+  untis   Namen, wie WebUntis sie liefert (getTimetable; fehlt dort ein Fach,
+          die neue Schnittstelle) – einheitlich für alle Termine, egal aus
+          welcher Quelle die Stunde stammt
+  custom  eigene Bezeichnungen (settings.json -> custom_names, z. B.
+          {"g2": "Geschichte"}); Fächer ohne eigene Bezeichnung wie "untis"
 
-Eigene Namen (settings.json -> custom_names, z. B. {"g2": "Geschichte"}) gehen
-immer vor.
+Die App merkt sich je Kurzname, was beide Schnittstellen liefern
+(state.json -> subject_names).
 """
 import config
 
-MODES = ("short", "rpc", "rest")
+MODES = ("untis", "custom")
+_LEGACY = {"rpc", "rest", "short"}     # frühere Auswahl (Kurz / Schnittstelle 1 / 2)
 
 
 def default_mode() -> str:
-    return "rpc" if config.USE_LONG_NAMES else "short"
+    return "untis"
+
+
+def normalize_mode(value, custom: dict) -> str:
+    """Gespeicherten Wert auf die aktuellen Varianten abbilden."""
+    if value in MODES:
+        return value
+    if value in _LEGACY:
+        return "custom" if custom else "untis"
+    return default_mode()
 
 
 def collect(lessons: list, known: dict) -> dict:
@@ -26,15 +37,17 @@ def collect(lessons: list, known: dict) -> dict:
     return known
 
 
+def untis_name(subject: str, known: dict, fallback: str) -> str:
+    if not config.USE_LONG_NAMES:
+        return subject
+    return ((known.get("rpc") or {}).get(subject) or (known.get("rest") or {}).get(subject)
+            or fallback or subject)
+
+
 def apply(lessons: list, mode: str, known: dict, custom: dict = None) -> None:
-    custom = custom or {}
+    custom = (custom or {}) if mode == "custom" else {}
     for l in lessons:
-        if custom.get(l.subject):
-            l.display = custom[l.subject]
-        elif mode == "short":
-            l.display = l.subject
-        else:
-            l.display = (known.get(mode) or {}).get(l.subject) or l.subject_long
+        l.display = custom.get(l.subject) or untis_name(l.subject, known, l.subject_long)
 
 
 def subjects(known: dict, custom: dict = None) -> list:
@@ -42,4 +55,4 @@ def subjects(known: dict, custom: dict = None) -> list:
     custom = custom or {}
     rpc, rest = known.get("rpc") or {}, known.get("rest") or {}
     keys = sorted(set(rpc) | set(rest) | set(custom), key=str.lower)
-    return [{"short": k, "rpc": rpc.get(k), "rest": rest.get(k), "custom": custom.get(k, "")} for k in keys]
+    return [{"short": k, "untis": untis_name(k, known, k), "custom": custom.get(k, "")} for k in keys]
